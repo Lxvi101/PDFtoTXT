@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'PDF to Text',
-  description: 'Extract text and tables from PDFs using Gemini 2.0 Flash',
+  title: 'PageSentry - Secure PDF Scanning SaaS',
+  description: 'Account-secured PDF scanning with credit-based billing and Gemini 2.0 Flash extraction.',
 };
 
 export default function RootLayout({
