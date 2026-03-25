@@ -26,5 +26,7 @@ export async function GET(request: Request) {
     limit: 6,
   });
 
-  return NextResponse.json({ overview, recentUsage });
+  const scanRuns = await convex.query(api.scanRuns.listForDashboard, {});
+
+  return NextResponse.json({ overview, recentUsage, scanRuns });
 }

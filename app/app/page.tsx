@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import Scanner from "@/components/Scanner";
+import Scanner, { type ScanResumePayload } from "@/components/Scanner";
 import { authClient } from "@/lib/authClient";
 
 type CreditEvent = {
@@ -42,6 +42,29 @@ type UsageItem = {
   outputTokens: number;
   cost: number;
   createdAt: number;
+};
+
+type ScanRunRow = {
+  _id: string;
+  triggerRunId: string;
+  requestId: string;
+  pageCount: number;
+  pageStart: number;
+  pageEnd: number;
+  totalPages: number;
+  isActive: boolean;
+  status: "processing" | "completed" | "failed" | "stopped";
+  createdAt: number;
+  updatedAt: number;
+  finishedAt?: number;
+  successCount?: number;
+  failedCount?: number;
+  stoppedEarly?: boolean;
+};
+
+type ScanRunsState = {
+  active: ScanRunRow[];
+  recent: ScanRunRow[];
 };
 
 const CREDIT_PACKS = [
@@ -86,6 +109,7 @@ export default function AppPage() {
   const session = authClient.useSession();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [recentUsage, setRecentUsage] = useState<UsageItem[]>([]);
+  const [scanRuns, setScanRuns] = useState<ScanRunsState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [purchaseLoading, setPurchaseLoading] = useState<string | null>(null);
@@ -103,6 +127,7 @@ export default function AppPage() {
       }
       setOverview(data.overview);
       setRecentUsage(data.recentUsage ?? []);
+      setScanRuns(data.scanRuns ?? { active: [], recent: [] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load overview");
     } finally {
@@ -155,6 +180,17 @@ export default function AppPage() {
     if (!overview) return null;
     return overview.totals;
   }, [overview]);
+
+  const resumeRun: ScanResumePayload | null = useMemo(() => {
+    const a = scanRuns?.active?.[0];
+    if (!a) return null;
+    return {
+      triggerRunId: a.triggerRunId,
+      requestId: a.requestId,
+      pageCount: a.pageCount,
+      pageStart: a.pageStart,
+    };
+  }, [scanRuns?.active?.[0]?.triggerRunId, scanRuns?.active?.[0]?.requestId]);
 
   // Calculate generic usage cost for display purposes (rough estimate based on tokens)
   const estimatedSpend = recentUsage.reduce((acc, curr) => acc + curr.cost, 0);
@@ -259,6 +295,9 @@ export default function AppPage() {
               <div className="p-6 md:p-8">
                 <Scanner
                   availableCredits={overview?.user?.isAdmin ? Infinity : availableCredits}
+                  resumeRun={resumeRun}
+                  onScanTerminal={loadOverview}
+                  onScanStarted={loadOverview}
                   onCreditsUpdate={(credits) =>
                     setOverview((prev) =>
                       prev
@@ -306,6 +345,54 @@ export default function AppPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* Scan runs (Convex): active + history */}
+            <div className="tech-panel p-0">
+              <div className="tech-panel-header">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-white">Scan Runs</h3>
+                <span className="text-[10px] font-mono text-white/40">
+                  {scanRuns?.active?.length ? `${scanRuns.active.length} active` : "—"}
+                </span>
+              </div>
+              <div className="p-0 max-h-56 overflow-y-auto">
+                {scanRuns?.recent?.length ? (
+                  <div className="divide-y divide-white/5">
+                    {scanRuns.recent.slice(0, 12).map((run) => (
+                      <div
+                        key={run._id}
+                        className="p-3 flex items-start justify-between gap-2 text-[11px] hover:bg-white/5 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-mono text-white/80 truncate">
+                            {run.triggerRunId.slice(0, 10)}…
+                          </p>
+                          <p className="text-white/35 mt-0.5">
+                            {run.pageCount} pg · {formatTime(run.createdAt)}
+                          </p>
+                        </div>
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-mono uppercase ${
+                            run.isActive
+                              ? "bg-[#CCFF00]/15 text-[#CCFF00] border border-[#CCFF00]/30"
+                              : run.status === "completed"
+                                ? "bg-white/5 text-white/50 border border-white/10"
+                                : run.status === "stopped"
+                                  ? "bg-amber-500/10 text-amber-400/90 border border-amber-500/20"
+                                  : "bg-rose-500/10 text-rose-400/90 border border-rose-500/20"
+                          }`}
+                        >
+                          {run.isActive ? "active" : run.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-[10px] text-white/25 font-mono">
+                    No scans yet
+                  </div>
+                )}
               </div>
             </div>
 

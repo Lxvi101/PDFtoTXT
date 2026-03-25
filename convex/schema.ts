@@ -43,4 +43,31 @@ export default defineSchema({
   })
     .index("by_auth_user", ["authUserId"])
     .index("by_auth_user_created", ["authUserId", "createdAt"]),
+
+  /** Trigger.dev PDF scans: history + isActive for in-progress runs */
+  scanRuns: defineTable({
+    authUserId: v.string(),
+    triggerRunId: v.string(),
+    requestId: v.string(),
+    pageCount: v.number(),
+    pageStart: v.number(),
+    pageEnd: v.number(),
+    totalPages: v.number(),
+    isActive: v.boolean(),
+    status: v.union(
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("stopped"),
+    ),
+    successCount: v.optional(v.number()),
+    failedCount: v.optional(v.number()),
+    stoppedEarly: v.optional(v.boolean()),
+    finishedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_auth_user_created", ["authUserId", "createdAt"])
+    .index("by_auth_user_active", ["authUserId", "isActive"])
+    .index("by_trigger_run", ["triggerRunId"]),
 });

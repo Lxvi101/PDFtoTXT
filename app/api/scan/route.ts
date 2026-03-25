@@ -83,6 +83,19 @@ export async function POST(request: NextRequest) {
       totalPages,
     });
 
+    try {
+      await convex.mutation(api.scanRuns.create, {
+        triggerRunId: handle.id,
+        requestId,
+        pageCount,
+        pageStart,
+        pageEnd,
+        totalPages,
+      });
+    } catch (e) {
+      console.error("scanRuns.create failed:", e);
+    }
+
     return NextResponse.json({
       runId: handle.id,
       pageCount,

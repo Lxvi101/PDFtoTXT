@@ -10,6 +10,7 @@
 
 import type * as credits from "../credits.js";
 import type * as http from "../http.js";
+import type * as scanRuns from "../scanRuns.js";
 import type * as usage from "../usage.js";
 import type * as users from "../users.js";
 
@@ -22,6 +23,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   credits: typeof credits;
   http: typeof http;
+  scanRuns: typeof scanRuns;
   usage: typeof usage;
   users: typeof users;
 }>;

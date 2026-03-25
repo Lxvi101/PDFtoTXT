@@ -50,6 +50,34 @@ export async function GET(
 
     const convex = getAuthenticatedConvexClient(token);
 
+    const markScanRunComplete = async () => {
+      if (status === "failed") {
+        try {
+          await convex.mutation(api.scanRuns.complete, {
+            triggerRunId: runId,
+            status: "failed",
+          });
+        } catch {
+          // idempotent
+        }
+        return;
+      }
+      if (status === "completed" && output) {
+        const terminalStatus = output.summary.stoppedEarly ? ("stopped" as const) : ("completed" as const);
+        try {
+          await convex.mutation(api.scanRuns.complete, {
+            triggerRunId: runId,
+            status: terminalStatus,
+            successCount: output.summary.successCount,
+            failedCount: output.summary.failedCount,
+            stoppedEarly: output.summary.stoppedEarly,
+          });
+        } catch {
+          // idempotent
+        }
+      }
+    };
+
     // ── Refund: entire run failed (Trigger.dev infra issue / timeout) ──
     if (status === "failed" && requestId && pageCount > 0) {
       try {
@@ -109,6 +137,10 @@ export async function GET(
       } catch (usageError) {
         console.warn("Usage recording failed:", usageError);
       }
+    }
+
+    if (status === "failed" || (status === "completed" && output)) {
+      await markScanRunComplete();
     }
 
     return NextResponse.json({

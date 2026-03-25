@@ -22,9 +22,23 @@ interface PageData {
 
 type GlobalStatus = 'idle' | 'converting' | 'uploading' | 'processing' | 'retrying' | 'done' | 'failed' | 'stopped';
 
+/** Minimal fields from Convex `scanRuns` to resume polling after refresh */
+export type ScanResumePayload = {
+  triggerRunId: string;
+  requestId: string;
+  pageCount: number;
+  pageStart: number;
+};
+
 interface ScannerProps {
   availableCredits: number | null;
   onCreditsUpdate?: (credits: number) => void;
+  /** Active run from Convex — resume UI when idle (e.g. after refresh) */
+  resumeRun?: ScanResumePayload | null;
+  /** Convex + dashboard refresh after a run reaches a terminal state */
+  onScanTerminal?: () => void;
+  /** After a new run is successfully queued (Convex row created server-side) */
+  onScanStarted?: () => void;
 }
 
 // --- Icons ---
@@ -78,7 +92,13 @@ const Icons = {
 
 // --- Main Component ---
 
-export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerProps) {
+export default function Scanner({
+  availableCredits,
+  onCreditsUpdate,
+  resumeRun = null,
+  onScanTerminal,
+  onScanStarted,
+}: ScannerProps) {
   const [pages, setPages] = useState<PageData[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [globalStatus, setGlobalStatus] = useState<GlobalStatus>('idle');
@@ -93,8 +113,11 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const usageRecordedRef = useRef(false);
+  const scanTerminalNotifiedRef = useRef(false);
   const previewImagesRef = useRef<string[]>([]);
   const startPageRef = useRef(1);
+  /** Run IDs the user dismissed with "New PDF" so we don't auto-resume them */
+  const skippedResumeIds = useRef<Set<string>>(new Set());
 
   const totalCost = pages.reduce((acc, page) => acc + (page.usage?.cost || 0), 0);
 
@@ -109,6 +132,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
   const startPolling = useCallback((id: string, reqId: string, count: number) => {
     if (pollRef.current) clearInterval(pollRef.current);
     usageRecordedRef.current = false;
+    scanTerminalNotifiedRef.current = false;
 
     const poll = async () => {
       try {
@@ -187,12 +211,22 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
           if (refunded > 0 && availableCredits !== null && availableCredits !== Infinity) {
             onCreditsUpdate?.((availableCredits ?? 0) + refunded);
           }
+
+          if (!scanTerminalNotifiedRef.current) {
+            scanTerminalNotifiedRef.current = true;
+            onScanTerminal?.();
+          }
         } else if (data.status === 'failed') {
           if (pollRef.current) clearInterval(pollRef.current);
           setGlobalStatus('failed');
           setCreditWarning('Cloud processing failed. Your credits have been refunded.');
           if (availableCredits !== null && availableCredits !== Infinity) {
             onCreditsUpdate?.((availableCredits ?? 0) + count);
+          }
+
+          if (!scanTerminalNotifiedRef.current) {
+            scanTerminalNotifiedRef.current = true;
+            onScanTerminal?.();
           }
         }
       } catch {
@@ -202,7 +236,29 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
 
     poll();
     pollRef.current = setInterval(poll, 2000);
-  }, [availableCredits, onCreditsUpdate]);
+  }, [availableCredits, onCreditsUpdate, onScanTerminal]);
+
+  // Resume active run from Convex when the console is idle (e.g. after refresh)
+  useEffect(() => {
+    if (!resumeRun) return;
+    if (runId !== null) return;
+    if (globalStatus !== 'idle') return;
+    if (pages.length > 0) return;
+    if (skippedResumeIds.current.has(resumeRun.triggerRunId)) return;
+
+    const start = resumeRun.pageStart;
+    const placeholders: PageData[] = Array.from({ length: resumeRun.pageCount }, (_, i) => ({
+      pageNumber: start + i,
+      status: 'pending' as PageStatus,
+      content: '',
+      image: '',
+    }));
+    setPages(placeholders);
+    setPageCount(resumeRun.pageCount);
+    setRunId(resumeRun.triggerRunId);
+    setGlobalStatus('processing');
+    startPolling(resumeRun.triggerRunId, resumeRun.requestId, resumeRun.pageCount);
+  }, [resumeRun, startPolling, runId, globalStatus, pages.length]);
 
   // ── Handle file upload ──
   const handleFileUpload = async (file: File) => {
@@ -223,6 +279,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
 
     setCreditWarning(null);
     setStoppedReason(null);
+    skippedResumeIds.current.clear();
     setGlobalStatus('converting');
     setPages([]);
     setLiveCompleted(0);
@@ -302,6 +359,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
       }
 
       startPolling(data.runId, data.requestId, data.pageCount);
+      onScanStarted?.();
 
     } catch (error) {
       console.error(error);
@@ -348,6 +406,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
 
   const resetScanner = () => {
     if (pollRef.current) clearInterval(pollRef.current);
+    if (runId) skippedResumeIds.current.add(runId);
     setPages([]);
     setGlobalStatus('idle');
     setRunId(null);
@@ -530,7 +589,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
 
             {!isTerminal && (
               <p className="text-[10px] text-white/20 font-mono mt-2">
-                Pages process in parallel batches of 5. Check your Trigger.dev dashboard for detailed run logs.
+                Up to 5 pages run in parallel; progress updates as each page finishes. See Trigger.dev for full logs.
               </p>
             )}
           </div>

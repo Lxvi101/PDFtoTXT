@@ -92,13 +92,15 @@ export const processPage = task({
     factor: 2,
   },
   run: async (payload: { pageBase64: string; pageNumber: number }) => {
+    logger.info(`[process-page] Start OCR for page ${payload.pageNumber}`);
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-    logger.info(`Processing page ${payload.pageNumber}`);
+    logger.debug(`[process-page] Calling Gemini for page ${payload.pageNumber}`);
 
     const result = await model.generateContent([
       OCR_PROMPT,
@@ -118,7 +120,8 @@ export const processPage = task({
     const cost = calculateCost(inputTokens, outputTokens);
 
     logger.info(
-      `Page ${payload.pageNumber} done — ${inputTokens + outputTokens} tokens, $${cost.toFixed(6)}`,
+      `[process-page] Page ${payload.pageNumber} OK — ${text.length} chars, ` +
+        `tokens in/out ${inputTokens}/${outputTokens}, cost $${cost.toFixed(6)}`,
     );
 
     return {
@@ -133,7 +136,10 @@ export const processPage = task({
 
 // ── Helper: flush progress to run metadata ──────────────────────────
 function updateProgress(progress: ProgressMetadata) {
-  metadata.set("progress", progress as unknown as DeserializedJson);
+  metadata.set(
+    "progress",
+    JSON.parse(JSON.stringify(progress)) as unknown as DeserializedJson,
+  );
 }
 
 // ── Main task: split PDF → batched parallel processing ──────────────
@@ -170,7 +176,9 @@ export const processPdf = task({
     }
     updateProgress(progress);
 
-    logger.info(`Splitting PDF into ${pageCount} single-page documents (pages ${start}–${end})`);
+    logger.info(
+      `[process-pdf] Splitting PDF into ${pageCount} single-page documents (pages ${start}–${end})`,
+    );
 
     // Split PDF into single-page PDFs
     const pagePayloads: { pageBase64: string; pageNumber: number }[] = [];
@@ -196,7 +204,8 @@ export const processPdf = task({
 
     /**
      * Process a list of page payloads in waves of BATCH_SIZE.
-     * Updates metadata after each wave. Returns page numbers that failed.
+     * Uses Promise.all + per-page triggerAndWait so metadata updates as each page finishes
+     * (parent run resumes after each child, unlike batchTriggerAndWait).
      */
     const processInBatches = async (
       items: typeof pagePayloads,
@@ -207,28 +216,24 @@ export const processPdf = task({
         if (stopped) break;
 
         const batch = items.slice(i, i + BATCH_SIZE);
+        const batchPageNumbers = batch.map((p) => p.pageNumber);
+        const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
 
-        // Mark batch pages as "processing"
+        logger.info(
+          `[process-pdf] Batch ${batchIndex}: queue pages [${batchPageNumbers.join(", ")}] (parallel triggerAndWait)`,
+        );
+
         for (const p of batch) {
           progress.pageStatuses[String(p.pageNumber)] = "processing";
         }
         updateProgress(progress);
 
-        logger.info(
-          `Batch ${Math.floor(i / BATCH_SIZE) + 1}: pages ${batch.map((p) => p.pageNumber).join(", ")}`,
-        );
-
-        // Fan out this wave in parallel
-        const batchResult = await processPage.batchTriggerAndWait(
-          batch.map((p) => ({ payload: p })),
-        );
-
-        // Process wave results
-        for (let j = 0; j < batchResult.runs.length; j++) {
-          const run = batchResult.runs[j];
-          const pageNum = batch[j].pageNumber;
+        const batchPromises = batch.map(async (p) => {
+          const run = await processPage.triggerAndWait(p);
+          const pageNum = p.pageNumber;
 
           if (run.ok && run.output) {
+            logger.info(`[process-pdf] Page ${pageNum} success`);
             results.set(pageNum, {
               pageNumber: run.output.pageNumber,
               text: run.output.text,
@@ -241,6 +246,11 @@ export const processPdf = task({
             progress.completedCount++;
             consecutiveFailures = 0;
           } else {
+            const errMsg =
+              !run.ok && "error" in run ? String(run.error) : "unknown error";
+            logger.error(
+              `[process-pdf] Page ${pageNum} failed after retries: ${errMsg}`,
+            );
             results.set(pageNum, {
               pageNumber: pageNum,
               text: "",
@@ -256,12 +266,15 @@ export const processPdf = task({
             consecutiveFailures++;
 
             logger.warn(
-              `Page ${pageNum} failed (consecutive failures: ${consecutiveFailures})`,
+              `[process-pdf] Page ${pageNum} consecutive failure count: ${consecutiveFailures}`,
             );
           }
-        }
 
-        updateProgress(progress);
+          updateProgress(progress);
+          return run;
+        });
+
+        await Promise.all(batchPromises);
 
         // ── Circuit breaker ──
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
@@ -269,7 +282,6 @@ export const processPdf = task({
           stoppedReason = `Circuit breaker: ${consecutiveFailures} consecutive page failures. Likely a systemic issue (API down, rate limits, etc).`;
           logger.error(stoppedReason);
 
-          // Mark remaining pages as pending (not attempted)
           for (let k = i + BATCH_SIZE; k < items.length; k++) {
             const remainingPage = items[k].pageNumber;
             if (!results.has(remainingPage)) {
@@ -301,7 +313,7 @@ export const processPdf = task({
       updateProgress(progress);
 
       logger.info(
-        `Retry pass ${retryPass}/${MAX_RETRY_PASSES}: ${failedPageNumbers.length} failed pages`,
+        `[process-pdf] Retry pass ${retryPass}/${MAX_RETRY_PASSES}: ${failedPageNumbers.length} failed pages`,
       );
 
       // Get payloads for failed pages
@@ -349,7 +361,7 @@ export const processPdf = task({
     };
 
     logger.info(
-      `${stopped ? "STOPPED" : "DONE"} — ${summary.successCount}/${summary.totalPages} pages, ` +
+      `[process-pdf] ${stopped ? "STOPPED" : "DONE"} — ${summary.successCount}/${summary.totalPages} pages, ` +
         `${summary.failedCount} failed, $${summary.totalCost.toFixed(6)} total` +
         (stoppedReason ? ` | ${stoppedReason}` : ""),
     );
