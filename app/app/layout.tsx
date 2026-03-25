@@ -1,6 +1,5 @@
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { isAuthenticated } from "@/lib/auth-server";
 import type { ReactNode } from "react";
 
 export default async function AppLayout({
@@ -8,12 +7,9 @@ export default async function AppLayout({
 }: {
   children: ReactNode;
 }) {
-  const session = await auth.api.getSession({
-    headers: headers(),
-    query: { disableRefresh: true },
-  });
+  const isAuth = await isAuthenticated();
 
-  if (!session) {
+  if (!isAuth) {
     redirect("/sign-in");
   }
 

@@ -1,4 +1,4 @@
-import { mutation, query } from "convex/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 const getUserByAuthId = async (ctx: any, authUserId: string) => {
@@ -47,20 +47,22 @@ export const getOverview = query({
 
 export const spend = mutation({
   args: {
-    authUserId: v.string(),
     amount: v.number(),
     reason: v.string(),
     pageNumber: v.optional(v.number()),
     requestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (args.amount <= 0) {
-      throw new Error("INVALID_AMOUNT");
-    }
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-    const user = await getUserByAuthId(ctx, args.authUserId);
-    if (!user) {
-      throw new Error("USER_NOT_FOUND");
+    if (args.amount <= 0) throw new Error("INVALID_AMOUNT");
+
+    const user = await getUserByAuthId(ctx, identity.subject);
+    if (!user) throw new Error("USER_NOT_FOUND");
+
+    if (user.isAdmin) {
+      return { credits: user.credits };
     }
 
     if (user.credits < args.amount) {
@@ -76,7 +78,7 @@ export const spend = mutation({
     });
 
     await ctx.db.insert("creditEvents", {
-      authUserId: args.authUserId,
+      authUserId: identity.subject,
       type: "spend",
       amount: args.amount,
       reason: args.reason,
@@ -93,21 +95,19 @@ export const spend = mutation({
 
 export const refund = mutation({
   args: {
-    authUserId: v.string(),
     amount: v.number(),
     reason: v.string(),
     pageNumber: v.optional(v.number()),
     requestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (args.amount <= 0) {
-      throw new Error("INVALID_AMOUNT");
-    }
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-    const user = await getUserByAuthId(ctx, args.authUserId);
-    if (!user) {
-      throw new Error("USER_NOT_FOUND");
-    }
+    if (args.amount <= 0) throw new Error("INVALID_AMOUNT");
+
+    const user = await getUserByAuthId(ctx, identity.subject);
+    if (!user) throw new Error("USER_NOT_FOUND");
 
     const now = Date.now();
     const nextCredits = user.credits + args.amount;
@@ -118,7 +118,7 @@ export const refund = mutation({
     });
 
     await ctx.db.insert("creditEvents", {
-      authUserId: args.authUserId,
+      authUserId: identity.subject,
       type: "refund",
       amount: args.amount,
       reason: args.reason,
@@ -135,20 +135,18 @@ export const refund = mutation({
 
 export const purchase = mutation({
   args: {
-    authUserId: v.string(),
     amount: v.number(),
     packId: v.optional(v.string()),
     reason: v.string(),
   },
   handler: async (ctx, args) => {
-    if (args.amount <= 0) {
-      throw new Error("INVALID_AMOUNT");
-    }
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-    const user = await getUserByAuthId(ctx, args.authUserId);
-    if (!user) {
-      throw new Error("USER_NOT_FOUND");
-    }
+    if (args.amount <= 0) throw new Error("INVALID_AMOUNT");
+
+    const user = await getUserByAuthId(ctx, identity.subject);
+    if (!user) throw new Error("USER_NOT_FOUND");
 
     const now = Date.now();
     const nextCredits = user.credits + args.amount;
@@ -159,7 +157,7 @@ export const purchase = mutation({
     });
 
     await ctx.db.insert("creditEvents", {
-      authUserId: args.authUserId,
+      authUserId: identity.subject,
       type: "purchase",
       amount: args.amount,
       reason: args.reason,

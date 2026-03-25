@@ -9,9 +9,10 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@convex-dev/better-auth": "0.10.10",
     "@google/generative-ai": "^0.24.1",
     "@tailwindcss/postcss": "^4.1.18",
-    "better-auth": "^1.4.18",
+    "better-auth": "1.4.9",
     "convex": "^1.31.7",
     "next": "^15.1.4",
     "react": "^19",

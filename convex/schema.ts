@@ -8,6 +8,7 @@ export default defineSchema({
     name: v.string(),
     credits: v.number(),
     plan: v.string(),
+    isAdmin: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_auth_user", ["authUserId"]),

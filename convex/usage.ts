@@ -1,18 +1,20 @@
-import { mutation, query } from "convex/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const record = mutation({
   args: {
-    authUserId: v.string(),
     pageNumber: v.number(),
     inputTokens: v.number(),
     outputTokens: v.number(),
     cost: v.number(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
     const now = Date.now();
     await ctx.db.insert("usage", {
-      authUserId: args.authUserId,
+      authUserId: identity.subject,
       pageNumber: args.pageNumber,
       inputTokens: args.inputTokens,
       outputTokens: args.outputTokens,

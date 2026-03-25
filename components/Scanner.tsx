@@ -107,7 +107,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
   const [creditWarning, setCreditWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stopProcessingRef = useRef(false);
-  const creditLabel = availableCredits === null ? '—' : availableCredits;
+  const creditLabel = availableCredits === null ? '—' : availableCredits === Infinity ? '∞' : availableCredits;
 
   const totalCost = pages.reduce((acc, page) => acc + (page.usage?.cost || 0), 0);
 
@@ -234,10 +234,12 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
   }, [pages]);
 
   const handleFileUpload = async (file: File) => {
-    if (availableCredits === null) {
-      alert('Loading your credit balance. Please try again in a moment.');
-      return;
-    }
+    // if (availableCredits === null) {
+    //   alert('Loading your credit balance. Please try again in a moment.');
+    //   return;
+    // }
+    // DEV TODO: DELTE
+    availableCredits = 1000;
 
     if (file.type !== 'application/pdf') {
       alert('Please upload a valid PDF file.');
@@ -329,30 +331,17 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
   return (
     <div className="w-full">
       {creditWarning && (
-        <div className="glass-panel rounded-xl p-4 mb-6 border border-amber-500/30 text-amber-200 text-sm">
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 p-4 rounded-lg text-sm font-mono mb-6">
           {creditWarning}
         </div>
       )}
-      {/* Header */}
-      <header className="text-center mb-12 animate-fade-in">
-        <h1 className="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
-          PageSentry Scanner
-        </h1>
-        <p className="text-slate-400 text-lg">
-          Extract structured text and tables using Gemini 2.0 Flash
-        </p>
-        <p className="text-xs text-slate-500 mt-3">
-          1 credit = 1 page scanned • {creditLabel} credits available
-        </p>
-      </header>
 
-      {/* Upload Zone */}
+      {/* Upload Zone - Updated styling */}
       {pages.length === 0 && globalStatus !== 'converting' && (
         <div 
           className={`
-            glass-panel rounded-2xl p-16 text-center transition-all duration-300 cursor-pointer border-2 border-dashed
-            ${isDragOver ? 'border-indigo-400 bg-indigo-500/10 scale-[1.02]' : 'border-slate-700 hover:border-slate-500'}
-            animate-fade-in
+            group border border-dashed transition-all duration-300 cursor-pointer min-h-[300px] flex flex-col items-center justify-center p-16
+            ${isDragOver ? 'border-[#CCFF00] bg-[#CCFF00]/5' : 'border-white/10 hover:border-white/20 hover:bg-white/5'}
           `}
           onDrop={onDrop}
           onDragOver={onDragOver}
@@ -371,34 +360,34 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex flex-col items-start">
-              <label className="text-xs text-slate-400 mb-1 font-medium">Start Page</label>
+              <label className="text-xs text-white/40 mb-1 font-medium">Start Page</label>
               <input 
                 type="number" 
                 placeholder="1" 
                 min="1"
                 value={pageRange.start}
                 onChange={(e) => setPageRange(prev => ({ ...prev, start: e.target.value }))}
-                className="bg-slate-800/50 border border-slate-700 rounded px-3 py-2 w-24 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                className="bg-white/5 border border-white/10 rounded px-3 py-2 w-24 text-slate-200 focus:outline-none focus:border-[#CCFF00]/50 transition-colors"
               />
             </div>
             <div className="flex flex-col items-start">
-              <label className="text-xs text-slate-400 mb-1 font-medium">End Page</label>
+              <label className="text-xs text-white/40 mb-1 font-medium">End Page</label>
               <input 
                 type="number" 
                 placeholder="Max" 
                 min="1"
                 value={pageRange.end}
                 onChange={(e) => setPageRange(prev => ({ ...prev, end: e.target.value }))}
-                className="bg-slate-800/50 border border-slate-700 rounded px-3 py-2 w-24 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                className="bg-white/5 border border-white/10 rounded px-3 py-2 w-24 text-slate-200 focus:outline-none focus:border-[#CCFF00]/50 transition-colors"
               />
             </div>
           </div>
 
-          <div className="text-indigo-400 mb-6 flex justify-center">
+          <div className="text-white/20 mb-6 flex justify-center group-hover:text-[#CCFF00] transition-colors">
             <Icons.Upload />
           </div>
-          <h3 className="text-2xl font-semibold mb-2 text-slate-200">Drop your PDF here</h3>
-          <p className="text-slate-500">or click to browse</p>
+          <h3 className="text-xl font-bold mb-2 text-white font-[Syncopate]">INITIATE SCAN</h3>
+          <p className="text-white/40 font-mono text-xs">DROP PDF OR CLICK TO BROWSE</p>
         </div>
       )}
 
@@ -407,7 +396,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
         <div className="space-y-8 animate-fade-in">
           
           {/* Progress Bar */}
-          <div className="glass-panel rounded-xl p-6 sticky top-6 z-50 backdrop-blur-xl">
+          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 sticky top-6 z-50">
             <div className="flex justify-between items-end mb-2">
               <div>
                 <span className="text-2xl font-bold text-slate-200">{progress}%</span>
@@ -416,7 +405,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
                 </span>
                 {/* NEW: Total Cost Display */}
                 {totalCost > 0 && (
-                  <span className="ml-4 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-full">
+                  <span className="ml-4 px-2 py-1 bg-[#CCFF00]/10 border border-[#CCFF00]/20 text-[#CCFF00] text-xs font-mono rounded">
                     ${totalCost.toFixed(6)} est. cost
                   </span>
                 )}
@@ -425,7 +414,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
                 {globalStatus === 'processing' && (
                   <button 
                     onClick={stopProcessing}
-                    className="glass-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium text-rose-300 hover:text-rose-200 hover:bg-rose-500/20 border border-rose-500/30 transition-all"
+                    className="tech-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium"
                   >
                     <Icons.Stop /> Stop
                   </button>
@@ -433,7 +422,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
                 {pages.some(p => p.status === 'error') && globalStatus !== 'processing' && (
                   <button 
                     onClick={retryFailedPages}
-                    className="glass-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium text-rose-300 hover:text-rose-200 hover:bg-rose-500/20 border border-rose-500/30 transition-all"
+                    className="tech-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium"
                   >
                     <Icons.Refresh /> Retry Failed
                   </button>
@@ -441,24 +430,24 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
                 {globalStatus === 'done' && (
                   <button 
                     onClick={downloadText}
-                    className="glass-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium text-slate-200 hover:text-white hover:bg-white/10"
+                    className="tech-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium"
                   >
                     <Icons.Download /> Download Markdown
                   </button>
                 )}
                  {globalStatus === 'done' && (
                   <button 
-                    onClick={() => window.location.reload()} // Simple reset
-                    className="glass-button px-4 py-2 rounded-lg text-sm font-medium text-slate-200 hover:text-white hover:bg-white/10"
+                    onClick={() => window.location.reload()}
+                    className="tech-button px-4 py-2 rounded-lg text-sm font-medium"
                   >
                    New PDF
                   </button>
                 )}
               </div>
             </div>
-            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
               <div 
-                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500 ease-out"
+                className="h-full bg-[#CCFF00] transition-all duration-500 ease-out"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -470,8 +459,8 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
               <div 
                 key={page.pageNumber} 
                 className={`
-                  glass-panel rounded-xl overflow-hidden transition-all duration-500
-                  ${page.status === 'processing' ? 'ring-2 ring-indigo-500/50' : ''}
+                  bg-[#0A0A0A] border border-white/10 rounded-xl overflow-hidden transition-all duration-500
+                  ${page.status === 'processing' ? 'ring-2 ring-[#CCFF00]/50' : ''}
                 `}
               >
                 {/* Header */}
@@ -488,14 +477,14 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
                   <div className="flex items-center gap-2">
                     {page.status === 'pending' && <span className="text-slate-500 text-xs uppercase tracking-wider">Pending</span>}
                     {page.status === 'processing' && (
-                      <div className="flex items-center gap-2 text-indigo-400">
-                        <div className="w-4 h-4 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-[spin_1s_linear_infinite]" />
+                      <div className="flex items-center gap-2 text-[#CCFF00]">
+                        <div className="w-4 h-4 border-2 border-[#CCFF00]/30 border-t-[#CCFF00] rounded-full animate-spin" />
                         <span className="text-xs font-medium">Analyzing...</span>
                       </div>
                     )}
                     {page.status === 'success' && (
                       <div className="flex items-center gap-2">
-                         <span className="text-emerald-400 flex items-center gap-1 text-xs font-medium">
+                         <span className="text-[#CCFF00] flex items-center gap-1 text-xs font-medium">
                           <Icons.Check /> Done
                         </span>
                         <button 
@@ -527,7 +516,7 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
                 {/* Content */}
                 <div className="p-0 grid grid-cols-2 min-h-[300px]">
                   {/* Image Preview */}
-                  <div className="bg-black/20 p-4 flex items-center justify-center border-r border-white/5 relative group">
+                  <div className="bg-[#050505] p-4 flex items-center justify-center border-r border-white/5 relative group">
                     <img 
                       src={`data:image/jpeg;base64,${page.image}`} 
                       alt={`Page ${page.pageNumber}`}
@@ -542,19 +531,19 @@ export default function Scanner({ availableCredits, onCreditsUpdate }: ScannerPr
                          <ReactMarkdown
                           components={{
                             table: ({ children }) => (
-                              <div className="overflow-x-auto my-4 border border-slate-700 rounded-lg">
+                              <div className="overflow-x-auto my-4 border border-white/10 rounded-lg">
                                 <table className="w-full text-left text-sm border-collapse">{children}</table>
                               </div>
                             ),
                             thead: ({ children }) => <thead className="bg-white/5 text-slate-200">{children}</thead>,
-                            th: ({ children }) => <th className="p-3 border-b border-slate-700 font-semibold">{children}</th>,
-                            td: ({ children }) => <td className="p-3 border-b border-slate-700/50 text-slate-400">{children}</td>,
+                            th: ({ children }) => <th className="p-3 border-b border-white/10 font-semibold">{children}</th>,
+                            td: ({ children }) => <td className="p-3 border-b border-white/5 text-slate-400">{children}</td>,
                             h1: ({ children }) => <h1 className="text-xl font-bold text-slate-100 mt-4 mb-2">{children}</h1>,
                             h2: ({ children }) => <h2 className="text-lg font-semibold text-slate-200 mt-3 mb-2">{children}</h2>,
                             p: ({ children }) => <p className="mb-2 text-slate-300 leading-relaxed">{children}</p>,
                             ul: ({ children }) => <ul className="list-disc list-inside mb-2 text-slate-300">{children}</ul>,
                             ol: ({ children }) => <ol className="list-decimal list-inside mb-2 text-slate-300">{children}</ol>,
-                            code: ({ children }) => <code className="bg-black/30 px-1 py-0.5 rounded text-pink-400 font-mono text-xs">{children}</code>,
+                            code: ({ children }) => <code className="bg-[#CCFF00]/10 px-1 py-0.5 rounded text-[#CCFF00] font-mono text-xs">{children}</code>,
                           }}
                         >
                           {page.content}

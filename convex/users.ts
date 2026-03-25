@@ -1,4 +1,4 @@
-import { mutation, query } from "convex/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 const STARTING_CREDITS = 100;
@@ -14,24 +14,35 @@ export const getByAuthId = query({
   },
 });
 
-export const ensureUser = mutation({
-  args: {
-    authUserId: v.string(),
-    email: v.string(),
-    name: v.string(),
+export const getCurrentAuthUserId = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    return identity?.subject ?? null;
   },
-  handler: async (ctx, args) => {
+});
+
+export const ensureUser = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
     const existing = await ctx.db
       .query("users")
-      .withIndex("by_auth_user", (q) => q.eq("authUserId", args.authUserId))
+      .withIndex("by_auth_user", (q) => q.eq("authUserId", identity.subject))
       .unique();
 
     const now = Date.now();
+    
+    const name = identity.name || identity.email || "User";
+    const email = identity.email || "";
+
     if (existing) {
-      if (existing.email !== args.email || existing.name !== args.name) {
+      if (existing.email !== email || existing.name !== name) {
         await ctx.db.patch(existing._id, {
-          email: args.email,
-          name: args.name,
+          email,
+          name,
           updatedAt: now,
         });
       }
@@ -39,17 +50,18 @@ export const ensureUser = mutation({
     }
 
     const userId = await ctx.db.insert("users", {
-      authUserId: args.authUserId,
-      email: args.email,
-      name: args.name,
+      authUserId: identity.subject,
+      email,
+      name,
       credits: STARTING_CREDITS,
       plan: DEFAULT_PLAN,
+      isAdmin: false,
       createdAt: now,
       updatedAt: now,
     });
 
     await ctx.db.insert("creditEvents", {
-      authUserId: args.authUserId,
+      authUserId: identity.subject,
       type: "grant",
       amount: STARTING_CREDITS,
       reason: "welcome_grant",

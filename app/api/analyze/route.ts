@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { api, getConvexClient } from "@/lib/convex";
+import { getToken } from "@/lib/auth-server";
+import { api, getAuthenticatedConvexClient } from "@/lib/convex";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -18,14 +18,15 @@ const calculateCost = (inputTokens: number, outputTokens: number) => {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-      query: { disableRefresh: true },
-    });
-
-    if (!session) {
+    const token = await getToken();
+    if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const convex = getAuthenticatedConvexClient(token);
+
+    const user = await convex.mutation(api.users.ensureUser, {});
+    const isAdmin = !!user?.isAdmin;
 
     const { image, pageNumber } = await request.json();
 
@@ -40,39 +41,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const convex = getConvexClient();
-    await convex.mutation(api.users.ensureUser, {
-      authUserId: session.user.id,
-      email: session.user.email,
-      name: session.user.name,
-    });
-
     const requestId = crypto.randomUUID();
     const resolvedPageNumber =
       typeof pageNumber === "number" ? pageNumber : undefined;
-    let creditsRemaining: number | null = null;
+    let creditsRemaining: number | null = user?.credits ?? null;
 
-    try {
-      const spendResult = await convex.mutation(api.credits.spend, {
-        authUserId: session.user.id,
-        amount: 1,
-        reason: "scan_page",
-        pageNumber: resolvedPageNumber,
-        requestId,
-      });
-      creditsRemaining = spendResult.credits;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
-      if (message.includes("INSUFFICIENT_CREDITS")) {
+    if (!isAdmin) {
+      try {
+        const spendResult = await convex.mutation(api.credits.spend, {
+          amount: 1,
+          reason: "scan_page",
+          pageNumber: resolvedPageNumber,
+          requestId,
+        });
+        creditsRemaining = spendResult.credits;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
+        if (message.includes("INSUFFICIENT_CREDITS")) {
+          return NextResponse.json(
+            { error: "Insufficient credits" },
+            { status: 402 },
+          );
+        }
         return NextResponse.json(
-          { error: "Insufficient credits" },
-          { status: 402 },
+          { error: "Unable to reserve credits" },
+          { status: 500 },
         );
       }
-      return NextResponse.json(
-        { error: "Unable to reserve credits" },
-        { status: 500 },
-      );
     }
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -107,32 +102,34 @@ Formatting: Use Markdown headers and lists to mirror the document's original str
       const response = await result.response;
       const text = response.text();
 
-      const usage = response.usageMetadata;
-      const inputTokens = usage?.promptTokenCount || 0;
-      const outputTokens = usage?.candidatesTokenCount || 0;
-      const cost = calculateCost(inputTokens, outputTokens);
+      if (!isAdmin) {
+        const usage = response.usageMetadata;
+        const inputTokens = usage?.promptTokenCount || 0;
+        const outputTokens = usage?.candidatesTokenCount || 0;
+        const cost = calculateCost(inputTokens, outputTokens);
 
-      try {
-        await convex.mutation(api.usage.record, {
-          authUserId: session.user.id,
-          pageNumber: resolvedPageNumber ?? 0,
-          inputTokens,
-          outputTokens,
-          cost,
-        });
-      } catch (usageError) {
-        console.warn("Usage record failed:", usageError);
+        try {
+          await convex.mutation(api.usage.record, {
+            pageNumber: resolvedPageNumber ?? 0,
+            inputTokens,
+            outputTokens,
+            cost,
+          });
+        } catch (usageError) {
+          console.warn("Usage record failed:", usageError);
+        }
       }
 
-      return NextResponse.json({ text, usage, creditsRemaining });
+      return NextResponse.json({ text, usage: response.usageMetadata, creditsRemaining });
     } catch (error: any) {
-      await convex.mutation(api.credits.refund, {
-        authUserId: session.user.id,
-        amount: 1,
-        reason: "scan_failed",
-        pageNumber: resolvedPageNumber,
-        requestId,
-      });
+      if (!isAdmin) {
+        await convex.mutation(api.credits.refund, {
+          amount: 1,
+          reason: "scan_failed",
+          pageNumber: resolvedPageNumber,
+          requestId,
+        });
+      }
       throw error;
     }
   } catch (error: any) {

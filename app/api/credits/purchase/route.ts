@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { api, getConvexClient } from "@/lib/convex";
+import { getToken } from "@/lib/auth-server";
+import { api, getAuthenticatedConvexClient } from "@/lib/convex";
 
 const CREDIT_PACKS = {
   starter: { credits: 500, price: 9 },
@@ -11,12 +11,9 @@ const CREDIT_PACKS = {
 type PackId = keyof typeof CREDIT_PACKS;
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({
-    headers: request.headers,
-    query: { disableRefresh: true },
-  });
+  const token = await getToken();
 
-  if (!session) {
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -28,16 +25,11 @@ export async function POST(request: Request) {
   }
 
   const pack = CREDIT_PACKS[packId];
-  const convex = getConvexClient();
+  const convex = getAuthenticatedConvexClient(token);
 
-  await convex.mutation(api.users.ensureUser, {
-    authUserId: session.user.id,
-    email: session.user.email,
-    name: session.user.name,
-  });
+  await convex.mutation(api.users.ensureUser, {});
 
   const result = await convex.mutation(api.credits.purchase, {
-    authUserId: session.user.id,
     amount: pack.credits,
     packId,
     reason: "manual_purchase",

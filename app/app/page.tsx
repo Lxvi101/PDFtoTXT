@@ -24,6 +24,7 @@ type Overview = {
     plan: string;
     name: string;
     email: string;
+    isAdmin?: boolean;
   };
   totals: {
     granted: number;
@@ -49,30 +50,33 @@ const CREDIT_PACKS = [
     name: "Starter",
     credits: 500,
     price: 9,
-    description: "Perfect for weekly reports and decks.",
+    description: "Weekly reports.",
   },
   {
     id: "pro",
     name: "Pro",
     credits: 2500,
     price: 39,
-    description: "High-volume teams with steady scanning.",
+    description: "High-volume teams.",
   },
   {
     id: "business",
     name: "Business",
     credits: 10000,
     price: 129,
-    description: "Enterprise workloads and batch processing.",
+    description: "Enterprise batching.",
   },
 ];
 
 const formatNumber = (value: number) =>
   new Intl.NumberFormat("en-US").format(value);
 
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("en-US", { style: 'currency', currency: 'USD' }).format(value);
+
 const formatTime = (value: number) =>
   new Date(value).toLocaleString("en-US", {
-    month: "short",
+    month: "numeric",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
@@ -152,203 +156,195 @@ export default function AppPage() {
     return overview.totals;
   }, [overview]);
 
+  // Calculate generic usage cost for display purposes (rough estimate based on tokens)
+  const estimatedSpend = recentUsage.reduce((acc, curr) => acc + curr.cost, 0);
+
   return (
-    <div className="min-h-screen px-6 py-10">
-      <div className="max-w-6xl mx-auto space-y-10">
-        <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <Link href="/" className="text-2xl font-semibold text-slate-100">
-              PageSentry
+    <div className="min-h-screen bg-[#050505] text-[#e0e0e0] font-sans selection:bg-[#CCFF00] selection:text-black">
+      {/* Background Pattern */}
+      <div className="fixed inset-0 dot-pattern pointer-events-none z-0 opacity-50" />
+
+      <div className="relative z-10 max-w-[1400px] mx-auto p-4 md:p-8 space-y-8">
+        
+        {/* Top Navigation / Header */}
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 pb-6 border-b border-white/5">
+          <div className="space-y-1">
+            <Link href="/" className="text-xl font-bold tracking-tighter text-white flex items-center gap-2">
+              <div className="w-3 h-3 bg-[#CCFF00] rounded-full"></div>
+              DOCMIND <span className="text-white/30 font-normal">CONSOLE</span>
             </Link>
-            <p className="text-sm text-slate-400">
-              Secure, credit-based PDF scanning built for teams.
-            </p>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm text-slate-400">{session?.data?.user?.email}</p>
-              <p className="text-sm text-slate-200">{session?.data?.user?.name}</p>
+          
+          <div className="flex items-center gap-4 bg-[#0A0A0A] border border-white/10 rounded-full px-4 py-2">
+            <div className="flex flex-col text-right mr-2">
+              <span className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Authenticated</span>
+              <span className="text-xs font-mono text-white">{session?.data?.user?.email}</span>
             </div>
+            <div className="h-8 w-px bg-white/10"></div>
             <button
               onClick={handleSignOut}
-              className="glass-button px-4 py-2 rounded-lg text-sm text-slate-200"
+              className="text-xs font-medium text-white/60 hover:text-white transition-colors"
             >
-              Sign out
+              Sign Out
             </button>
           </div>
         </header>
 
         {error && (
-          <div className="glass-panel rounded-xl p-4 border border-rose-500/30 text-rose-200 text-sm">
-            {error}
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-lg text-sm font-mono">
+            Error: {error}
           </div>
         )}
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="glass-panel rounded-2xl p-6">
-            <p className="text-xs uppercase tracking-wider text-slate-500">
-              Available Credits
-            </p>
-            <p className="text-3xl font-semibold text-slate-100 mt-3">
-              {isLoading ? "—" : formatNumber(availableCredits ?? 0)}
-            </p>
-            <p className="text-sm text-slate-400 mt-2">
-              1 credit equals 1 scanned page.
-            </p>
-          </div>
-          <div className="glass-panel rounded-2xl p-6">
-            <p className="text-xs uppercase tracking-wider text-slate-500">
-              Usage Summary
-            </p>
-            <p className="text-3xl font-semibold text-slate-100 mt-3">
-              {isLoading || !totals ? "—" : formatNumber(totals.spent)}
-            </p>
-            <p className="text-sm text-slate-400 mt-2">
-              Pages processed across all documents.
-            </p>
-          </div>
-          <div className="glass-panel rounded-2xl p-6">
-            <p className="text-xs uppercase tracking-wider text-slate-500">
-              Plan
-            </p>
-            <p className="text-3xl font-semibold text-slate-100 mt-3 capitalize">
-              {isLoading ? "—" : overview?.user?.plan || "free"}
-            </p>
-            <p className="text-sm text-slate-400 mt-2">
-              New accounts get 100 credits to start.
-            </p>
-          </div>
-        </div>
-
-        <section className="glass-panel rounded-2xl p-6">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-100">
-                Buy more credits
-              </h2>
-              <p className="text-sm text-slate-400">
-                Credits unlock every scanned page. Choose a pack below.
-              </p>
-            </div>
-            <p className="text-xs text-slate-500">
-              Secure checkout ready for Stripe integration.
-            </p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3 mt-6">
-            {CREDIT_PACKS.map((pack) => (
-              <div
-                key={pack.id}
-                className="border border-white/5 rounded-xl p-5 bg-white/5"
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-100">
-                    {pack.name}
-                  </h3>
-                  <span className="text-sm text-emerald-300 font-medium">
-                    ${pack.price}
-                  </span>
-                </div>
-                <p className="text-sm text-slate-400 mt-2">{pack.description}</p>
-                <p className="text-2xl font-semibold text-slate-200 mt-4">
-                  {formatNumber(pack.credits)}
-                  <span className="text-sm text-slate-400"> credits</span>
-                </p>
-                <button
-                  onClick={() => handlePurchase(pack.id)}
-                  disabled={purchaseLoading === pack.id}
-                  className="glass-button w-full mt-4 py-2 rounded-lg text-sm text-slate-200"
-                >
-                  {purchaseLoading === pack.id ? "Processing..." : "Buy credits"}
-                </button>
+        <main className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* LEFT COLUMN: Stats & Credits (8 cols) */}
+          <div className="lg:col-span-8 space-y-6">
+            
+            {/* Usage Snapshot Panel - Inspired by xAI Dashboard */}
+            <div className="tech-panel p-0">
+              <div className="tech-panel-header">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-white">Usage Snapshot</h2>
+                <span className="text-[10px] font-mono text-[#CCFF00] bg-[#CCFF00]/10 px-2 py-1 rounded">LIVE</span>
               </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="glass-panel rounded-2xl p-6">
-            <h3 className="text-lg font-semibold text-slate-100">Recent activity</h3>
-            <div className="mt-4 space-y-3">
-              {overview?.recentEvents?.length ? (
-                overview.recentEvents.map((event) => (
-                  <div
-                    key={event._id}
-                    className="flex items-center justify-between text-sm text-slate-300 border-b border-white/5 pb-2"
-                  >
-                    <div>
-                      <p className="font-medium capitalize">{event.type}</p>
-                      <p className="text-xs text-slate-500">{event.reason}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-slate-200">
-                        {event.type === "spend" ? "-" : "+"}
-                        {formatNumber(event.amount)}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {formatTime(event.createdAt)}
-                      </p>
-                    </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-white/5">
+                {/* Metric 1 */}
+                <div className="p-6 md:p-8 flex flex-col justify-between h-40">
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-widest text-white/40">Available Credits</p>
+                    <p className="text-4xl md:text-5xl font-mono font-light text-white tracking-tighter">
+                      {isLoading ? "..." : overview?.user?.isAdmin ? "∞" : formatNumber(availableCredits ?? 0)}
+                    </p>
                   </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-500">
-                  Activity will appear once you scan or buy credits.
-                </p>
-              )}
+                  <div className="w-full bg-white/5 h-1 mt-4 rounded-full overflow-hidden">
+                    <div className="h-full bg-[#CCFF00] w-[70%]"></div>
+                  </div>
+                </div>
+
+                {/* Metric 2 */}
+                <div className="p-6 md:p-8 flex flex-col justify-between h-40">
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-widest text-white/40">Pages Scanned</p>
+                    <p className="text-4xl md:text-5xl font-mono font-light text-white tracking-tighter">
+                      {isLoading || !totals ? "..." : formatNumber(totals.spent)}
+                    </p>
+                  </div>
+                  <p className="text-xs text-white/30 mt-4">Lifetime usage count</p>
+                </div>
+
+                {/* Metric 3 */}
+                <div className="p-6 md:p-8 flex flex-col justify-between h-40">
+                  <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-widest text-white/40">Est. Spend</p>
+                    <p className="text-4xl md:text-5xl font-mono font-light text-white tracking-tighter">
+                      {isLoading ? "..." : formatCurrency(estimatedSpend)}
+                    </p>
+                  </div>
+                  <p className="text-xs text-white/30 mt-4">Based on Gemini API costs</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Main Action Area: Scanner */}
+            <div className="tech-panel min-h-[500px]">
+               <div className="tech-panel-header">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-white">Console</h2>
+                <div className="flex gap-2">
+                   <div className="w-2 h-2 rounded-full bg-red-500/20 border border-red-500/50"></div>
+                   <div className="w-2 h-2 rounded-full bg-amber-500/20 border border-amber-500/50"></div>
+                   <div className="w-2 h-2 rounded-full bg-green-500/20 border border-green-500/50"></div>
+                </div>
+              </div>
+              <div className="p-6 md:p-8">
+                <Scanner
+                  availableCredits={overview?.user?.isAdmin ? Infinity : availableCredits}
+                  onCreditsUpdate={(credits) =>
+                    setOverview((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            user: {
+                              ...prev.user,
+                              credits,
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                />
+              </div>
             </div>
           </div>
-          <div className="glass-panel rounded-2xl p-6">
-            <h3 className="text-lg font-semibold text-slate-100">Recent scans</h3>
-            <div className="mt-4 space-y-3">
-              {recentUsage.length ? (
-                recentUsage.map((usage) => (
-                  <div
-                    key={usage._id}
-                    className="flex items-center justify-between text-sm text-slate-300 border-b border-white/5 pb-2"
-                  >
-                    <div>
-                      <p className="font-medium">Page {usage.pageNumber}</p>
-                      <p className="text-xs text-slate-500">
-                        {usage.inputTokens + usage.outputTokens} tokens
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-slate-200">
-                        ${usage.cost.toFixed(5)}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {formatTime(usage.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-500">
-                  Your latest scans will show up here.
-                </p>
-              )}
-            </div>
-          </div>
-        </section>
 
-        <section className="glass-panel rounded-2xl p-6">
-          <Scanner
-            availableCredits={availableCredits}
-            onCreditsUpdate={(credits) =>
-              setOverview((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      user: {
-                        ...prev.user,
-                        credits,
-                      },
-                    }
-                  : prev,
-              )
-            }
-          />
-        </section>
+          {/* RIGHT COLUMN: Secondary Info (4 cols) */}
+          <div className="lg:col-span-4 space-y-6">
+            
+            {/* Purchase Credits */}
+            <div className="tech-panel p-6">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-4">Add Capacity</h3>
+              <div className="space-y-3">
+                {CREDIT_PACKS.map((pack) => (
+                  <div key={pack.id} className="group relative">
+                    <button
+                      onClick={() => handlePurchase(pack.id)}
+                      disabled={purchaseLoading === pack.id}
+                      className="w-full flex items-center justify-between p-4 bg-white/5 border border-white/5 hover:border-[#CCFF00]/50 hover:bg-[#CCFF00]/5 transition-all duration-300 rounded text-left group-disabled:opacity-50"
+                    >
+                      <div>
+                        <div className="text-white font-medium group-hover:text-[#CCFF00] transition-colors">{pack.name}</div>
+                        <div className="text-[10px] text-white/40 uppercase tracking-wider">{formatNumber(pack.credits)} Credits</div>
+                      </div>
+                      <div className="font-mono text-lg text-white">
+                        ${pack.price}
+                      </div>
+                    </button>
+                    {purchaseLoading === pack.id && (
+                      <div className="absolute inset-0 bg-[#0A0A0A]/80 flex items-center justify-center text-xs font-mono text-[#CCFF00]">
+                        PROCESSING...
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Activity Feed */}
+            <div className="tech-panel flex-1">
+              <div className="tech-panel-header">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-white">System Log</h3>
+              </div>
+              <div className="p-0">
+                {overview?.recentEvents?.length ? (
+                  <div className="divide-y divide-white/5">
+                    {overview.recentEvents.map((event) => (
+                      <div key={event._id} className="p-4 flex items-start justify-between text-xs hover:bg-white/5 transition-colors">
+                        <div className="flex gap-3">
+                          <span className={`font-mono font-bold ${event.type === 'spend' ? 'text-white/40' : 'text-[#CCFF00]'}`}>
+                            {event.type === 'spend' ? 'OUT' : 'IN_'}
+                          </span>
+                          <div>
+                            <p className="text-white font-medium capitalize">{event.reason.replace('_', ' ')}</p>
+                            <p className="text-white/30 mt-0.5">{formatTime(event.createdAt)}</p>
+                          </div>
+                        </div>
+                        <span className="font-mono text-white/60">
+                          {event.type === "spend" ? "-" : "+"}
+                          {formatNumber(event.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-xs text-white/20 font-mono">
+                    -- NO ACTIVITY LOGGED --
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        </main>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-# PageSentry
+# DocMind
 
 Account-secured PDF scanning SaaS with credit-based billing, powered by
 Convex + Better Auth + Gemini 2.0 Flash.

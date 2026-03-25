@@ -1,29 +1,28 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { api, getConvexClient } from "@/lib/convex";
+import { getToken } from "@/lib/auth-server";
+import { api, getAuthenticatedConvexClient } from "@/lib/convex";
 
 export async function GET(request: Request) {
-  const session = await auth.api.getSession({
-    headers: request.headers,
-    query: { disableRefresh: true },
-  });
+  const token = await getToken();
 
-  if (!session) {
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const convex = getConvexClient();
-  await convex.mutation(api.users.ensureUser, {
-    authUserId: session.user.id,
-    email: session.user.email,
-    name: session.user.name,
-  });
+  const convex = getAuthenticatedConvexClient(token);
+
+  const authUserId = await convex.query(api.users.getCurrentAuthUserId, {});
+  if (!authUserId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  await convex.mutation(api.users.ensureUser, {});
 
   const overview = await convex.query(api.credits.getOverview, {
-    authUserId: session.user.id,
+    authUserId,
   });
   const recentUsage = await convex.query(api.usage.listRecent, {
-    authUserId: session.user.id,
+    authUserId,
     limit: 6,
   });
 

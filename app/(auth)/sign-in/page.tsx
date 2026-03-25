@@ -47,7 +47,7 @@ export default function SignInPage() {
       <div className="max-w-md w-full glass-panel rounded-3xl p-10 space-y-6">
         <div className="space-y-2 text-center">
           <Link href="/" className="text-2xl font-semibold text-slate-100">
-            PageSentry
+            DocMind
           </Link>
           <p className="text-sm text-slate-400">
             {mode === "sign-in"
@@ -140,7 +140,7 @@ export default function SignInPage() {
         </form>
 
         <p className="text-xs text-center text-slate-500">
-          By continuing you agree to the PageSentry security policy and usage
+          By continuing you agree to the DocMind security policy and usage
           terms.
         </p>
       </div>

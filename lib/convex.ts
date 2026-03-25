@@ -14,3 +14,11 @@ export const api = anyApi;
 export const getConvexClient = () => {
   return new ConvexHttpClient(resolveConvexUrl());
 };
+
+export const getAuthenticatedConvexClient = (token: string | null) => {
+  const client = getConvexClient();
+  if (token) {
+    client.setAuth(token);
+  }
+  return client;
+};
