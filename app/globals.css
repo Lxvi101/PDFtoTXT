@@ -1,65 +1,179 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0f172a;
-  --foreground: #f8fafc;
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --surface: rgba(30, 41, 59, 0.7);
-  --surface-border: rgba(148, 163, 184, 0.1);
-  --glass: rgba(255, 255, 255, 0.03);
-  --glass-border: rgba(255, 255, 255, 0.05);
+  --background: #050505;
+  --foreground: #f0f0f0;
+  --accent: #CCFF00; /* Acid Green */
+  --accent-glow: rgba(204, 255, 0, 0.4);
+  --secondary: #7000FF; /* Electric Purple */
+  --surface: #0A0A0A;
+  --border: #27272a; /* Zinc 800 */
 }
 
 @layer base {
   body {
-    @apply text-slate-100 bg-slate-900 font-sans min-h-screen;
-    background-image: 
-      radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.15), transparent 25%),
-      radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.15), transparent 25%);
+    @apply text-slate-100 bg-[#050505] min-h-screen selection:bg-[#CCFF00] selection:text-black antialiased;
+    font-family: 'Space Grotesk', sans-serif;
+    overflow-x: hidden;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Syncopate', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: -0.02em;
   }
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+@layer components {
+  .noise-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 50;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  }
+
+  .grid-bg {
+    background-size: 40px 40px;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  }
+
+  .neon-border {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+  }
+  
+  .neon-border:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 15px var(--accent-glow);
+  }
+
+  .glitch-text {
+    position: relative;
+  }
+  
+  .glitch-text::before,
+  .glitch-text::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #050505;
+  }
+  
+  .glitch-text::before {
+    left: 2px;
+    text-shadow: -1px 0 #ff00c1;
+    clip: rect(44px, 450px, 56px, 0);
+    animation: glitch-anim 5s infinite linear alternate-reverse;
+  }
+  
+  .glitch-text::after {
+    left: -2px;
+    text-shadow: -1px 0 #00fff9;
+    clip: rect(44px, 450px, 56px, 0);
+    animation: glitch-anim2 5s infinite linear alternate-reverse;
+  }
+
+  .cta-button {
+    @apply relative px-8 py-4 bg-[#CCFF00] text-black font-bold uppercase tracking-widest text-sm transition-transform duration-200 hover:scale-105 active:scale-95 overflow-hidden;
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  }
+
+  .glass-card {
+    @apply bg-white/5 backdrop-blur-sm border border-white/10 p-6 transition-colors hover:bg-white/10;
+  }
+
+  .dot-pattern {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+  }
+
+  .tech-panel {
+    @apply bg-[#0A0A0A] border border-white/10 rounded-xl overflow-hidden relative;
+  }
+
+  .tech-panel-header {
+    @apply bg-white/5 border-b border-white/5 p-4 flex items-center justify-between;
+  }
+
+  .tech-button {
+    @apply bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:border-white/20 hover:bg-white/10 transition-all duration-200;
+  }
+
+  .tech-button-primary {
+    @apply bg-[#CCFF00] text-black font-bold border border-[#CCFF00] hover:bg-[#b3e600] transition-all duration-200;
+  }
 }
 
-/* Animations */
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes glitch-anim {
+  0% { clip: rect(38px, 9999px, 81px, 0); transform: skew(0.85deg); }
+  5% { clip: rect(61px, 9999px, 55px, 0); transform: skew(0.08deg); }
+  10% { clip: rect(74px, 9999px, 6px, 0); transform: skew(0.04deg); }
+  15% { clip: rect(79px, 9999px, 86px, 0); transform: skew(0.48deg); }
+  20% { clip: rect(93px, 9999px, 45px, 0); transform: skew(0.79deg); }
+  25% { clip: rect(2px, 9999px, 88px, 0); transform: skew(0.92deg); }
+  30% { clip: rect(56px, 9999px, 51px, 0); transform: skew(0.33deg); }
+  35% { clip: rect(81px, 9999px, 49px, 0); transform: skew(0.33deg); }
+  40% { clip: rect(96px, 9999px, 5px, 0); transform: skew(0.25deg); }
+  45% { clip: rect(6px, 9999px, 99px, 0); transform: skew(0.42deg); }
+  50% { clip: rect(54px, 9999px, 12px, 0); transform: skew(0.76deg); }
+  55% { clip: rect(43px, 9999px, 7px, 0); transform: skew(0.71deg); }
+  60% { clip: rect(58px, 9999px, 96px, 0); transform: skew(0.53deg); }
+  65% { clip: rect(100px, 9999px, 34px, 0); transform: skew(0.88deg); }
+  70% { clip: rect(60px, 9999px, 72px, 0); transform: skew(0.79deg); }
+  75% { clip: rect(89px, 9999px, 57px, 0); transform: skew(0.6deg); }
+  80% { clip: rect(40px, 9999px, 96px, 0); transform: skew(0.73deg); }
+  85% { clip: rect(67px, 9999px, 3px, 0); transform: skew(0.57deg); }
+  90% { clip: rect(69px, 9999px, 65px, 0); transform: skew(0.85deg); }
+  95% { clip: rect(64px, 9999px, 20px, 0); transform: skew(0.67deg); }
+  100% { clip: rect(51px, 9999px, 80px, 0); transform: skew(0.12deg); }
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes glitch-anim2 {
+  0% { clip: rect(65px, 9999px, 100px, 0); transform: skew(0.3deg); }
+  5% { clip: rect(52px, 9999px, 74px, 0); transform: skew(0.2deg); }
+  10% { clip: rect(79px, 9999px, 85px, 0); transform: skew(0.1deg); }
+  15% { clip: rect(25px, 9999px, 5px, 0); transform: skew(0.4deg); }
+  20% { clip: rect(67px, 9999px, 61px, 0); transform: skew(0.3deg); }
+  25% { clip: rect(93px, 9999px, 10px, 0); transform: skew(0.9deg); }
+  30% { clip: rect(82px, 9999px, 93px, 0); transform: skew(0.6deg); }
+  35% { clip: rect(39px, 9999px, 7px, 0); transform: skew(0.2deg); }
+  40% { clip: rect(12px, 9999px, 50px, 0); transform: skew(0.8deg); }
+  45% { clip: rect(86px, 9999px, 4px, 0); transform: skew(0.7deg); }
+  50% { clip: rect(27px, 9999px, 37px, 0); transform: skew(0.6deg); }
+  55% { clip: rect(59px, 9999px, 13px, 0); transform: skew(0.9deg); }
+  60% { clip: rect(15px, 9999px, 71px, 0); transform: skew(0.5deg); }
+  65% { clip: rect(95px, 9999px, 83px, 0); transform: skew(0.4deg); }
+  70% { clip: rect(29px, 9999px, 32px, 0); transform: skew(0.3deg); }
+  75% { clip: rect(41px, 9999px, 19px, 0); transform: skew(0.2deg); }
+  80% { clip: rect(34px, 9999px, 47px, 0); transform: skew(0.1deg); }
+  85% { clip: rect(5px, 9999px, 58px, 0); transform: skew(0.9deg); }
+  90% { clip: rect(18px, 9999px, 2px, 0); transform: skew(0.6deg); }
+  95% { clip: rect(71px, 9999px, 89px, 0); transform: skew(0.7deg); }
+  100% { clip: rect(21px, 9999px, 44px, 0); transform: skew(0.4deg); }
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.4s ease-out forwards;
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 40s linear infinite;
 }
 
-.glass-panel {
-  @apply bg-white/5 backdrop-blur-md border border-white/5 shadow-lg;
-}
-
-.glass-button {
-  @apply bg-white/5 border border-white/10 transition-all duration-200 hover:bg-white/10 hover:-translate-y-px disabled:opacity-50 disabled:cursor-not-allowed;
+.scrolling-wrapper:hover .animate-marquee {
+  animation-play-state: paused;
 }

@@ -1,11 +1,34 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "@/lib/auth-server";
+import { api, getAuthenticatedConvexClient } from "@/lib/convex";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
+const PRICING = {
+  INPUT_PER_1M: 0.5,
+  OUTPUT_PER_1M: 3.0,
+};
+
+const calculateCost = (inputTokens: number, outputTokens: number) => {
+  const inputCost = (inputTokens / 1_000_000) * PRICING.INPUT_PER_1M;
+  const outputCost = (outputTokens / 1_000_000) * PRICING.OUTPUT_PER_1M;
+  return inputCost + outputCost;
+};
+
 export async function POST(request: NextRequest) {
   try {
-    const { image } = await request.json();
+    const token = await getToken();
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const convex = getAuthenticatedConvexClient(token);
+
+    const user = await convex.mutation(api.users.ensureUser, {});
+    const isAdmin = !!user?.isAdmin;
+
+    const { image, pageNumber } = await request.json();
 
     if (!image) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 });
@@ -16,6 +39,35 @@ export async function POST(request: NextRequest) {
         { error: "GEMINI_API_KEY not configured" },
         { status: 500 }
       );
+    }
+
+    const requestId = crypto.randomUUID();
+    const resolvedPageNumber =
+      typeof pageNumber === "number" ? pageNumber : undefined;
+    let creditsRemaining: number | null = user?.credits ?? null;
+
+    if (!isAdmin) {
+      try {
+        const spendResult = await convex.mutation(api.credits.spend, {
+          amount: 1,
+          reason: "scan_page",
+          pageNumber: resolvedPageNumber,
+          requestId,
+        });
+        creditsRemaining = spendResult.credits;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
+        if (message.includes("INSUFFICIENT_CREDITS")) {
+          return NextResponse.json(
+            { error: "Insufficient credits" },
+            { status: 402 },
+          );
+        }
+        return NextResponse.json(
+          { error: "Unable to reserve credits" },
+          { status: 500 },
+        );
+      }
     }
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -45,15 +97,41 @@ Formatting: Use Markdown headers and lists to mirror the document's original str
       },
     };
 
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = await result.response;
-    const text = response.text();
+    try {
+      const result = await model.generateContent([prompt, imagePart]);
+      const response = await result.response;
+      const text = response.text();
 
-    // --- NEW: Extract Usage Metadata ---
-    const usage = response.usageMetadata;
-    // usage looks like: { promptTokenCount: 300, candidatesTokenCount: 150, totalTokenCount: 450 }
+      if (!isAdmin) {
+        const usage = response.usageMetadata;
+        const inputTokens = usage?.promptTokenCount || 0;
+        const outputTokens = usage?.candidatesTokenCount || 0;
+        const cost = calculateCost(inputTokens, outputTokens);
 
-    return NextResponse.json({ text, usage });
+        try {
+          await convex.mutation(api.usage.record, {
+            pageNumber: resolvedPageNumber ?? 0,
+            inputTokens,
+            outputTokens,
+            cost,
+          });
+        } catch (usageError) {
+          console.warn("Usage record failed:", usageError);
+        }
+      }
+
+      return NextResponse.json({ text, usage: response.usageMetadata, creditsRemaining });
+    } catch (error: any) {
+      if (!isAdmin) {
+        await convex.mutation(api.credits.refund, {
+          amount: 1,
+          reason: "scan_failed",
+          pageNumber: resolvedPageNumber,
+          requestId,
+        });
+      }
+      throw error;
+    }
   } catch (error: any) {
     console.error("Gemini API Error:", error);
 

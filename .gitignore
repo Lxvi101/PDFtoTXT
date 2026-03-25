@@ -1,19 +1,19 @@
 # dependencies (bun install)
-node_modules
+node_modules/
 
 # output
-out
-dist
+out/
+dist/
 *.tgz
 
 # code coverage
-coverage
+coverage/
 *.lcov
 
 # logs
-logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+logs/
+*.log
+report.[0-9]*_[0-9]*_[0-9]*_[0-9]*.json
 
 # dotenv environment variable files
 .env
@@ -24,11 +24,12 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # caches
 .eslintcache
-.cache
+.cache/
 *.tsbuildinfo
 
 # IntelliJ based IDEs
-.idea
+.idea/
+.next/
 
 # Finder (MacOS) folder config
 .DS_Store

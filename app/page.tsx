@@ -1,546 +1,261 @@
-'use client';
+import Link from "next/link";
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import { convertPdfToImages } from '@/lib/pdfUtils';
-
-// --- Types ---
-
-type PageStatus = 'pending' | 'processing' | 'success' | 'error';
-
-interface PageData {
-  pageNumber: number;
-  status: PageStatus;
-  content: string;
-  image: string; // Base64 image
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    cost: number;
-  };
+function NoiseOverlay() {
+  return <div className="noise-bg fixed inset-0 z-50 pointer-events-none opacity-[0.05]"></div>;
 }
 
-// Pricing constants (per 1M tokens)
-const PRICING = {
-  INPUT_PER_1M: 0.50,
-  OUTPUT_PER_1M: 3.00,
-};
+function GridBackground() {
+  return <div className="fixed inset-0 grid-bg pointer-events-none z-[-1]"></div>;
+}
 
-const calculateCost = (inputTokens: number, outputTokens: number) => {
-  const inputCost = (inputTokens / 1_000_000) * PRICING.INPUT_PER_1M;
-  const outputCost = (outputTokens / 1_000_000) * PRICING.OUTPUT_PER_1M;
-  return inputCost + outputCost;
-};
-
-// --- Components ---
-
-const Icons = {
-  Upload: () => (
-    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
-    </svg>
-  ),
-  File: () => (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
-    </svg>
-  ),
-  Check: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  Refresh: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="23 4 23 10 17 10" />
-      <polyline points="1 20 1 14 7 14" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-    </svg>
-  ),
-  Copy: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  ),
-  Download: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  ),
-  Alert: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  ),
-  Stop: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <rect x="9" y="9" width="6" height="6" />
-    </svg>
-  ),
-};
-
-// --- Main Page Component ---
-
-export default function Home() {
-  const [pages, setPages] = useState<PageData[]>([]);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [globalStatus, setGlobalStatus] = useState<'idle' | 'converting' | 'processing' | 'done'>('idle');
-  const [progress, setProgress] = useState(0);
-  const [pageRange, setPageRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const stopProcessingRef = useRef(false);
-
-  const totalCost = pages.reduce((acc, page) => acc + (page.usage?.cost || 0), 0);
-
-  // Process a single page
-  const processPage = async (page: PageData, retries = 2) => {
-    try {
-      setPages(prev => prev.map(p => p.pageNumber === page.pageNumber ? { ...p, status: 'processing' } : p));
-
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: page.image }),
-      });
-
-      const data = await response.json();
-      
-      if (response.status === 429 && retries > 0) {
-        const delay = (4 - retries) * 2000;
-        console.warn(`Rate limited (429) on page ${page.pageNumber}. Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay)); 
-        return processPage(page, retries - 1);
-      }
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Failed to process');
-      }
-
-      // Calculate Cost
-      const inputTokens = data.usage?.promptTokenCount || 0;
-      const outputTokens = data.usage?.candidatesTokenCount || 0;
-      const cost = calculateCost(inputTokens, outputTokens);
-
-      setPages(prev => prev.map(p => p.pageNumber === page.pageNumber ? { 
-        ...p, 
-        status: 'success', 
-        content: data.text,
-        usage: {
-            inputTokens,
-            outputTokens,
-            cost
-        }
-      } : p));
-    } catch (error) {
-      console.error(`Error processing page ${page.pageNumber}:`, error);
-      setPages(prev => prev.map(p => p.pageNumber === page.pageNumber ? { ...p, status: 'error', content: 'Failed to analyze page.' } : p));
-    }
-  };
-
-  // Process queue with concurrency limit
-  const processQueue = async (initialPages: PageData[]) => {
-    stopProcessingRef.current = false;
-    setGlobalStatus('processing');
-    const concurrency = 1; // Process 1 page at a time to avoid rate limits
-    const queue = [...initialPages];
-    const processing = new Set<Promise<void>>();
-
-    while (queue.length > 0 || processing.size > 0) {
-      if (stopProcessingRef.current) break;
-
-      // Update progress
-      const completed = initialPages.length - (queue.length + processing.size); 
-      
-      while (processing.size < concurrency && queue.length > 0) {
-        if (stopProcessingRef.current) break;
-        
-        const page = queue.shift();
-        if (page) {
-          const promise = processPage(page).then(async () => {
-            // Add a small delay between requests to be nice to the API
-            if (!stopProcessingRef.current) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-            processing.delete(promise);
-          });
-          processing.add(promise);
-        }
-      }
-
-      if (processing.size > 0) {
-        await Promise.race(processing);
-      }
-    }
-
-    setGlobalStatus('done');
-  };
-
-  const stopProcessing = () => {
-    stopProcessingRef.current = true;
-  };
-
-  const retryFailedPages = () => {
-    const failedPages = pages.filter(p => p.status === 'error');
-    if (failedPages.length > 0) {
-      processQueue(failedPages);
-    }
-  };
-
-  // Effect to update progress bar based on completed pages
-  useEffect(() => {
-    if (pages.length === 0) return;
-    const completedCount = pages.filter(p => p.status === 'success' || p.status === 'error').length;
-    setProgress(Math.round((completedCount / pages.length) * 100));
-  }, [pages]);
-
-  const handleFileUpload = async (file: File) => {
-    if (file.type !== 'application/pdf') {
-      alert('Please upload a valid PDF file.');
-      return;
-    }
-
-    setGlobalStatus('converting');
-    setPages([]);
-    setProgress(0);
-
-    try {
-      const start = parseInt(pageRange.start);
-      const end = parseInt(pageRange.end);
-      const range = {
-        start: isNaN(start) ? undefined : start,
-        end: isNaN(end) ? undefined : end
-      };
-
-      const images = await convertPdfToImages(file, range);
-      
-      if (images.length === 0) {
-        alert('No pages found in the specified range.');
-        setGlobalStatus('idle');
-        return;
-      }
-      
-      const newPages: PageData[] = images.map((img, index) => ({
-        pageNumber: (range.start || 1) + index,
-        status: 'pending',
-        content: '',
-        image: img
-      }));
-
-      setPages(newPages);
-      
-      // Start processing
-      processQueue(newPages);
-
-    } catch (error) {
-      console.error(error);
-      alert('Error converting PDF. Please try again.');
-      setGlobalStatus('idle');
-    }
-  };
-
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileUpload(file);
-  }, []);
-
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
-
-  const onDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  }, []);
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    // Could add toast here
-  };
-
-  const downloadText = () => {
-    const fullText = pages.map(p => `## Page ${p.pageNumber}\n\n${p.content}\n`).join('\n---\n\n');
-    const blob = new Blob([fullText], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'extracted-text.md';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
+function Marquee({ text }: { text: string }) {
   return (
-    <div className="min-h-screen p-8 max-w-6xl mx-auto">
-      {/* Header */}
-      <header className="text-center mb-12 animate-fade-in">
-        <h1 className="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
-          PDF to Text
-        </h1>
-        <p className="text-slate-400 text-lg">
-          Extract structured text and tables using Gemini 2.0 Flash
-        </p>
-      </header>
+    <div className="w-full overflow-hidden bg-[#CCFF00] py-4 transform -skew-y-2 border-y-4 border-black relative z-10">
+      <div className="flex animate-marquee whitespace-nowrap">
+        {Array(10)
+          .fill(text)
+          .map((item, i) => (
+            <span key={i} className="text-black font-bold text-2xl mx-8 uppercase tracking-widest font-[Syncopate]">
+              {item}
+            </span>
+          ))}
+      </div>
+    </div>
+  );
+}
 
-      {/* Upload Zone */}
-      {pages.length === 0 && globalStatus !== 'converting' && (
-        <div 
-          className={`
-            glass-panel rounded-2xl p-16 text-center transition-all duration-300 cursor-pointer border-2 border-dashed
-            ${isDragOver ? 'border-indigo-400 bg-indigo-500/10 scale-[1.02]' : 'border-slate-700 hover:border-slate-500'}
-            animate-fade-in
-          `}
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <input 
-            type="file" 
-            ref={fileInputRef}
-            className="hidden" 
-            accept="application/pdf"
-            onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
-          />
-          <div 
-            className="mb-8 flex gap-4 justify-center items-center z-10 relative" 
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex flex-col items-start">
-              <label className="text-xs text-slate-400 mb-1 font-medium">Start Page</label>
-              <input 
-                type="number" 
-                placeholder="1" 
-                min="1"
-                value={pageRange.start}
-                onChange={(e) => setPageRange(prev => ({ ...prev, start: e.target.value }))}
-                className="bg-slate-800/50 border border-slate-700 rounded px-3 py-2 w-24 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-            </div>
-            <div className="flex flex-col items-start">
-              <label className="text-xs text-slate-400 mb-1 font-medium">End Page</label>
-              <input 
-                type="number" 
-                placeholder="Max" 
-                min="1"
-                value={pageRange.end}
-                onChange={(e) => setPageRange(prev => ({ ...prev, end: e.target.value }))}
-                className="bg-slate-800/50 border border-slate-700 rounded px-3 py-2 w-24 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-            </div>
-          </div>
+function GlitchText({ text, className = "" }: { text: string; className?: string }) {
+  return (
+    <span className={`glitch-text inline-block relative ${className}`} data-text={text}>
+      {text}
+    </span>
+  );
+}
 
-          <div className="text-indigo-400 mb-6 flex justify-center">
-            <Icons.Upload />
-          </div>
-          <h3 className="text-2xl font-semibold mb-2 text-slate-200">Drop your PDF here</h3>
-          <p className="text-slate-500">or click to browse</p>
+export default function LandingPage() {
+  return (
+    <div className="min-h-screen text-[#f0f0f0] bg-[#050505] selection:bg-[#CCFF00] selection:text-black overflow-x-hidden relative">
+      <NoiseOverlay />
+      <GridBackground />
+
+      {/* Navigation */}
+      <nav className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-6 py-6 backdrop-blur-sm border-b border-white/5">
+        <Link href="/" className="text-2xl font-bold font-[Syncopate] tracking-tighter hover:text-[#CCFF00] transition-colors">
+          DOCMIND
+        </Link>
+        <div className="flex items-center gap-6">
+          <Link href="/sign-in" className="hidden md:block text-sm uppercase tracking-widest text-[#f0f0f0]/60 hover:text-[#CCFF00] transition-colors">
+            Login
+          </Link>
+          <Link href="/sign-in" className="cta-button">
+            Launch App
+          </Link>
         </div>
-      )}
+      </nav>
 
-      {/* Processing State */}
-      {(globalStatus === 'converting' || (pages.length > 0 && globalStatus !== 'idle')) && (
-        <div className="space-y-8 animate-fade-in">
+      <main className="pt-32 pb-20 relative z-10">
+        
+        {/* Hero Section */}
+        <section className="px-6 min-h-[80vh] flex flex-col items-center justify-center text-center relative">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-[#CCFF00] rounded-full blur-[150px] opacity-10 pointer-events-none"></div>
           
-          {/* Progress Bar */}
-          <div className="glass-panel rounded-xl p-6 sticky top-6 z-50 backdrop-blur-xl">
-            <div className="flex justify-between items-end mb-2">
-              <div>
-                <span className="text-2xl font-bold text-slate-200">{progress}%</span>
-                <span className="text-slate-400 ml-2 text-sm">
-                  {globalStatus === 'converting' ? 'Converting PDF...' : `Processing ${pages.length} pages`}
-                </span>
-                {/* NEW: Total Cost Display */}
-                {totalCost > 0 && (
-                  <span className="ml-4 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-full">
-                    ${totalCost.toFixed(6)} est. cost
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-2">
-                {globalStatus === 'processing' && (
-                  <button 
-                    onClick={stopProcessing}
-                    className="glass-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium text-rose-300 hover:text-rose-200 hover:bg-rose-500/20 border border-rose-500/30 transition-all"
-                  >
-                    <Icons.Stop /> Stop
-                  </button>
-                )}
-                {pages.some(p => p.status === 'error') && globalStatus !== 'processing' && (
-                  <button 
-                    onClick={retryFailedPages}
-                    className="glass-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium text-rose-300 hover:text-rose-200 hover:bg-rose-500/20 border border-rose-500/30 transition-all"
-                  >
-                    <Icons.Refresh /> Retry Failed
-                  </button>
-                )}
-                {globalStatus === 'done' && (
-                  <button 
-                    onClick={downloadText}
-                    className="glass-button px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium text-slate-200 hover:text-white hover:bg-white/10"
-                  >
-                    <Icons.Download /> Download Markdown
-                  </button>
-                )}
-                 {globalStatus === 'done' && (
-                  <button 
-                    onClick={() => window.location.reload()} // Simple reset
-                    className="glass-button px-4 py-2 rounded-lg text-sm font-medium text-slate-200 hover:text-white hover:bg-white/10"
-                  >
-                   New PDF
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500 ease-out"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
+          <div className="space-y-2 mb-8">
+            <span className="inline-block px-4 py-1 border border-[#CCFF00] text-[#CCFF00] text-xs uppercase tracking-[0.3em] font-bold bg-[#CCFF00]/10 backdrop-blur-md">
+              THE AI PRE-PROCESSING LAYER
+            </span>
           </div>
+          
+          <h1 className="text-[12vw] leading-[0.8] font-[Syncopate] font-bold tracking-tighter text-transparent bg-clip-text bg-linear-to-b from-white to-white/50 select-none">
+            YOUR AI IS<br />
+            <span className="text-[#CCFF00]">BLIND</span>
+          </h1>
+          
+          <p className="max-w-xl mx-auto mt-12 text-lg md:text-xl text-[#f0f0f0]/60 font-light leading-relaxed">
+            LLMs struggle with PDFs. They lose context, hallucinate on tables, and choke on layouts. We convert documents into <span className="text-[#CCFF00] font-bold">semantic Markdown</span>—the only language your AI truly understands.
+          </p>
 
-          {/* Grid View */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {pages.map((page) => (
-              <div 
-                key={page.pageNumber} 
-                className={`
-                  glass-panel rounded-xl overflow-hidden transition-all duration-500
-                  ${page.status === 'processing' ? 'ring-2 ring-indigo-500/50' : ''}
-                `}
-              >
-                {/* Header */}
-                <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/5">
-                  <div className="flex flex-col">
-                    <span className="font-medium text-slate-300">Page {page.pageNumber}</span>
-                    {/* NEW: Page Cost Display */}
-                    {page.usage && (
-                       <span className="text-[10px] text-slate-500">
-                         {page.usage.inputTokens + page.usage.outputTokens} tokens (${page.usage.cost.toFixed(5)})
-                       </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {page.status === 'pending' && <span className="text-slate-500 text-xs uppercase tracking-wider">Pending</span>}
-                    {page.status === 'processing' && (
-                      <div className="flex items-center gap-2 text-indigo-400">
-                        <div className="w-4 h-4 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-[spin_1s_linear_infinite]" />
-                        <span className="text-xs font-medium">Analyzing...</span>
-                      </div>
-                    )}
-                    {page.status === 'success' && (
-                      <div className="flex items-center gap-2">
-                         <span className="text-emerald-400 flex items-center gap-1 text-xs font-medium">
-                          <Icons.Check /> Done
-                        </span>
-                        <button 
-                          onClick={() => copyToClipboard(page.content)}
-                          className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 hover:text-white transition-colors"
-                          title="Copy text"
-                        >
-                          <Icons.Copy />
-                        </button>
-                      </div>
-                    )}
-                    {page.status === 'error' && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-rose-400 flex items-center gap-1 text-xs font-medium">
-                          <Icons.Alert /> Error
-                        </span>
-                        <button 
-                          onClick={() => processPage(page)}
-                          className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 hover:text-white transition-colors"
-                          title="Retry"
-                        >
-                          <Icons.Refresh />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+          <div className="mt-12 flex flex-col sm:flex-row gap-6 items-center">
+            <Link href="/sign-in" className="cta-button group">
+              <span className="relative z-10">Convert for AI</span>
+              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+            </Link>
+            <Link href="#how-it-works" className="text-sm uppercase tracking-widest text-[#f0f0f0]/40 hover:text-[#f0f0f0] transition-colors border-b border-transparent hover:border-[#f0f0f0]">
+              See Protocol
+            </Link>
+          </div>
+        </section>
 
-                {/* Content */}
-                <div className="p-0 grid grid-cols-2 min-h-[300px]">
-                  {/* Image Preview */}
-                  <div className="bg-black/20 p-4 flex items-center justify-center border-r border-white/5 relative group">
-                    <img 
-                      src={`data:image/jpeg;base64,${page.image}`} 
-                      alt={`Page ${page.pageNumber}`}
-                      className="max-w-full max-h-[400px] shadow-lg rounded-sm opacity-90 transition-opacity group-hover:opacity-100"
-                    />
-                  </div>
+        {/* Marquee */}
+        <div className="py-20">
+          <Marquee text="PIXELS ARE NOT DATA • STRUCTURE IS CONTEXT • STOP FEEDING JUNK TO YOUR MODEL • CLEAN MARKDOWN EXPORTS • NATIVE LATEX PARSING • " />
+        </div>
 
-                  {/* Text Result */}
-                  <div className="p-6 max-h-[500px] overflow-y-auto custom-scrollbar">
-                    {page.status === 'success' ? (
-                      <div className="prose prose-invert prose-sm max-w-none">
-                         <ReactMarkdown
-                          components={{
-                            table: ({ children }) => (
-                              <div className="overflow-x-auto my-4 border border-slate-700 rounded-lg">
-                                <table className="w-full text-left text-sm border-collapse">{children}</table>
-                              </div>
-                            ),
-                            thead: ({ children }) => <thead className="bg-white/5 text-slate-200">{children}</thead>,
-                            th: ({ children }) => <th className="p-3 border-b border-slate-700 font-semibold">{children}</th>,
-                            td: ({ children }) => <td className="p-3 border-b border-slate-700/50 text-slate-400">{children}</td>,
-                            h1: ({ children }) => <h1 className="text-xl font-bold text-slate-100 mt-4 mb-2">{children}</h1>,
-                            h2: ({ children }) => <h2 className="text-lg font-semibold text-slate-200 mt-3 mb-2">{children}</h2>,
-                            p: ({ children }) => <p className="mb-2 text-slate-300 leading-relaxed">{children}</p>,
-                            ul: ({ children }) => <ul className="list-disc list-inside mb-2 text-slate-300">{children}</ul>,
-                            ol: ({ children }) => <ol className="list-decimal list-inside mb-2 text-slate-300">{children}</ol>,
-                            code: ({ children }) => <code className="bg-black/30 px-1 py-0.5 rounded text-pink-400 font-mono text-xs">{children}</code>,
-                          }}
-                        >
-                          {page.content}
-                        </ReactMarkdown>
-                      </div>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-slate-600 italic">
-                        {page.status === 'processing' ? 'Extracting text...' : 
-                         page.status === 'error' ? 'Failed to extract text.' : 
-                         'Waiting to start...'}
-                      </div>
-                    )}
-                  </div>
-                </div>
+        {/* Stats Grid - The Problem */}
+        <section className="px-6 py-20 max-w-7xl mx-auto">
+          <div className="text-center mb-16 space-y-4">
+             <h2 className="text-4xl md:text-5xl font-[Syncopate] font-bold uppercase text-white">THE CONTEXT GAP</h2>
+             <p className="text-xl text-[#f0f0f0]/60 max-w-2xl mx-auto">
+               Sending raw PDFs to an LLM is like asking a human to read a book in a dark room. Precision requires structure.
+             </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: "Raw PDF Input", value: "Opaque" },
+              { label: "Standard OCR", value: "Flat Text" },
+              { label: "DocMind Output", value: "Semantic" },
+              { label: "Token Efficiency", value: "Optimized" }
+            ].map((stat, i) => (
+              <div key={i} className="glass-card neon-border group">
+                <p className="text-[#f0f0f0]/40 text-xs uppercase tracking-widest mb-2">{stat.label}</p>
+                <p className="text-3xl font-[Syncopate] font-bold group-hover:text-[#CCFF00] transition-colors">{stat.value}</p>
               </div>
             ))}
           </div>
-        </div>
-      )}
-      
-      <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: rgba(0,0,0,0.1);
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.1);
-          border-radius: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(255,255,255,0.2);
-        }
-      `}</style>
+        </section>
+
+        {/* Feature Bento Grid - The Solution */}
+        <section id="how-it-works" className="px-6 py-20 max-w-7xl mx-auto space-y-20">
+          <div className="text-center space-y-4">
+            <h2 className="text-4xl md:text-6xl font-[Syncopate] font-bold uppercase">
+              Model <span className="text-transparent bg-clip-text bg-linear-to-r from-[#7000FF] to-[#CCFF00]">Ready</span>
+            </h2>
+            <p className="text-[#f0f0f0]/60 max-w-2xl mx-auto">
+              Don&apos;t train on noise. We extract the signal.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 grid-rows-2 gap-6 h-[800px] md:h-[600px]">
+            {/* Feature 1 - Large */}
+            <div className="md:col-span-2 row-span-2 glass-card neon-border relative overflow-hidden group">
+              <div className="absolute inset-0 bg-linear-to-br from-[#7000FF]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+              <div className="relative z-10 h-full flex flex-col justify-between">
+                <div>
+                  <h3 className="text-3xl font-bold mb-4 font-[Syncopate]">Structure Preservation</h3>
+                  <p className="text-[#f0f0f0]/60 max-w-md">
+                    An AI can&apos;t analyze a financial table if it looks like a soup of numbers. We reconstruct rows, columns, and headers so your model can perform accurate reasoning.
+                  </p>
+                </div>
+                <div className="mt-8 border border-white/10 rounded bg-black/50 p-4 font-mono text-xs text-[#CCFF00]/80">
+                  {`# Financial Report 2026`}
+                  <br />
+                  <br />
+                  {`| Category | Q1 | Q2 | Growth |`}
+                  <br />
+                  {`| :--- | :--- | :--- | :--- |`}
+                  <br />
+                  {`| Revenue | $2.4M | $3.1M | +29% |`}
+                  <br />
+                  {`| Operating Costs | $1.1M | $1.0M | -9% |`}
+                </div>
+              </div>
+            </div>
+
+            {/* Feature 2 */}
+            <div className="glass-card neon-border flex flex-col justify-center items-center text-center group">
+              <div className="w-16 h-16 rounded-full border border-[#CCFF00] flex items-center justify-center mb-6 group-hover:bg-[#CCFF00] group-hover:text-black transition-all duration-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              </div>
+              <h3 className="text-xl font-bold font-[Syncopate] mb-2">Zero Hallucination</h3>
+              <p className="text-sm text-[#f0f0f0]/60">By providing exact text representations of visuals and math (LaTeX), we reduce model guessing.</p>
+            </div>
+
+            {/* Feature 3 */}
+            <div className="glass-card neon-border flex flex-col justify-center items-center text-center group">
+              <div className="w-16 h-16 rounded-full border border-[#7000FF] flex items-center justify-center mb-6 group-hover:bg-[#7000FF] transition-all duration-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </div>
+              <h3 className="text-xl font-bold font-[Syncopate] mb-2">API Ready</h3>
+              <p className="text-sm text-[#f0f0f0]/60">Designed for developers building RAG pipelines. Integrate clean data streams directly into your application.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Pricing Section */}
+        <section id="pricing" className="px-6 py-20 max-w-7xl mx-auto relative">
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#7000FF] rounded-full blur-[150px] opacity-10 pointer-events-none"></div>
+
+          <h2 className="text-4xl md:text-6xl font-[Syncopate] font-bold uppercase text-center mb-20">
+            Data <span className="text-[#CCFF00]">Capacity</span>
+          </h2>
+
+          <div className="grid md:grid-cols-3 gap-8 items-end">
+            {[
+              {
+                title: "Initiate",
+                price: "0",
+                credits: "100",
+                features: ["Basic Text Extraction", "100 Page Limit", "Community Support"],
+                color: "border-white/10"
+              },
+              {
+                title: "Professional",
+                price: "9",
+                credits: "500",
+                features: ["Table & Math Optimization", "Export to CSV", "Email Support"],
+                color: "border-[#CCFF00]",
+                popular: true
+              },
+              {
+                title: "Enterprise",
+                price: "129",
+                credits: "10k",
+                features: ["Dedicated API", "RAG Pipeline Integration", "24/7 SLAS"],
+                color: "border-[#7000FF]"
+              }
+            ].map((plan, i) => (
+              <div key={i} className={`glass-card relative ${plan.popular ? 'bg-white/5 border-[#CCFF00] transform scale-105 z-10' : 'border-white/10 opacity-80 hover:opacity-100 hover:scale-[1.02]'} transition-all duration-300`}>
+                {plan.popular && (
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-[#CCFF00] text-black text-xs font-bold px-3 py-1 uppercase tracking-widest">
+                    Recommended
+                  </div>
+                )}
+                <h3 className="text-lg font-[Syncopate] font-bold uppercase mb-2 text-[#f0f0f0]">{plan.title}</h3>
+                <div className="flex items-baseline gap-1 mb-6">
+                  <span className="text-4xl font-bold text-[#f0f0f0]">$</span>
+                  <span className={`text-6xl font-bold font-[Syncopate] ${plan.popular ? 'text-[#CCFF00]' : 'text-white'}`}>{plan.price}</span>
+                </div>
+                <div className="mb-8 p-4 bg-black/40 border border-white/5 rounded text-center">
+                  <span className="block text-2xl font-bold text-white">{plan.credits}</span>
+                  <span className="text-xs uppercase tracking-widest text-[#f0f0f0]/40">Credits Included</span>
+                </div>
+                <ul className="space-y-4 mb-8">
+                  {plan.features.map((feat, j) => (
+                    <li key={j} className="flex items-center gap-3 text-sm text-[#f0f0f0]/70">
+                      <div className={`w-1.5 h-1.5 rounded-full ${plan.popular ? 'bg-[#CCFF00]' : 'bg-white'}`}></div>
+                      {feat}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/sign-in" className={`block w-full py-4 text-center text-xs font-bold uppercase tracking-widest transition-colors ${plan.popular ? 'bg-[#CCFF00] text-black hover:bg-white' : 'bg-white/10 text-white hover:bg-white/20'}`}>
+                  Select Plan
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* CTA Footer */}
+        <section className="px-6 py-32 text-center relative overflow-hidden">
+           <div className="absolute inset-0 bg-linear-to-t from-[#CCFF00]/5 to-transparent pointer-events-none"></div>
+           <h2 className="text-3xl md:text-5xl font-[Syncopate] font-bold uppercase mb-8">
+             Stop Feeding <GlitchText text="Noise" /> To Your AI.
+           </h2>
+           <Link href="/sign-in" className="cta-button inline-block text-lg px-12 py-6">
+             Get Clean Data
+           </Link>
+        </section>
+        
+        <footer className="px-6 py-8 border-t border-white/10 text-center md:text-left md:flex justify-between items-center text-xs text-[#f0f0f0]/30 uppercase tracking-widest">
+          <div>
+            &copy; 2026 DocMind Systems. All rights reserved.
+          </div>
+          <div className="flex gap-6 mt-4 md:mt-0 justify-center">
+            <Link href="#" className="hover:text-[#CCFF00] transition-colors">Privacy</Link>
+            <Link href="#" className="hover:text-[#CCFF00] transition-colors">Terms</Link>
+            <Link href="#" className="hover:text-[#CCFF00] transition-colors">Contact</Link>
+          </div>
+        </footer>
+      </main>
     </div>
   );
 }
