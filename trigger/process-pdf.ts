@@ -1,3 +1,4 @@
+import type { DeserializedJson } from "@trigger.dev/core";
 import { task, logger, metadata, queue } from "@trigger.dev/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PDFDocument } from "pdf-lib";
@@ -132,7 +133,7 @@ export const processPage = task({
 
 // ── Helper: flush progress to run metadata ──────────────────────────
 function updateProgress(progress: ProgressMetadata) {
-  metadata.set("progress", progress);
+  metadata.set("progress", progress as unknown as DeserializedJson);
 }
 
 // ── Main task: split PDF → batched parallel processing ──────────────

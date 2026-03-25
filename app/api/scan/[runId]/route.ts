@@ -31,14 +31,12 @@ export async function GET(
       case "FAILED":
       case "SYSTEM_FAILURE":
       case "CRASHED":
-      case "INTERRUPTED":
       case "CANCELED":
       case "TIMED_OUT":
         status = "failed";
         break;
       case "EXECUTING":
-      case "REATTEMPTING":
-      case "FROZEN":
+      case "WAITING":
         status = "processing";
         break;
       default:
