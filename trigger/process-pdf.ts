@@ -204,8 +204,8 @@ export const processPdf = task({
 
     /**
      * Process a list of page payloads in waves of BATCH_SIZE.
-     * Uses Promise.all + per-page triggerAndWait so metadata updates as each page finishes
-     * (parent run resumes after each child, unlike batchTriggerAndWait).
+     * Uses batchTriggerAndWait (not Promise.all + triggerAndWait) to avoid concurrency deadlocks
+     * in the task runtime; progress updates once per batch when all pages in the wave complete.
      */
     const processInBatches = async (
       items: typeof pagePayloads,
@@ -220,7 +220,7 @@ export const processPdf = task({
         const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
 
         logger.info(
-          `[process-pdf] Batch ${batchIndex}: queue pages [${batchPageNumbers.join(", ")}] (parallel triggerAndWait)`,
+          `[process-pdf] Batch ${batchIndex}: queue pages [${batchPageNumbers.join(", ")}] (batchTriggerAndWait)`,
         );
 
         for (const p of batch) {
@@ -228,8 +228,12 @@ export const processPdf = task({
         }
         updateProgress(progress);
 
-        const batchPromises = batch.map(async (p) => {
-          const run = await processPage.triggerAndWait(p);
+        const batchPayloads = batch.map((p) => ({ payload: p }));
+        const batchResult = await processPage.batchTriggerAndWait(batchPayloads);
+
+        for (let idx = 0; idx < batchResult.runs.length; idx++) {
+          const run = batchResult.runs[idx];
+          const p = batch[idx];
           const pageNum = p.pageNumber;
 
           if (run.ok && run.output) {
@@ -269,12 +273,9 @@ export const processPdf = task({
               `[process-pdf] Page ${pageNum} consecutive failure count: ${consecutiveFailures}`,
             );
           }
+        }
 
-          updateProgress(progress);
-          return run;
-        });
-
-        await Promise.all(batchPromises);
+        updateProgress(progress);
 
         // ── Circuit breaker ──
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {

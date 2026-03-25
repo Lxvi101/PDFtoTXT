@@ -4,7 +4,7 @@ export default defineConfig({
   // TODO: Replace with your Trigger.dev project ref from the dashboard
   project: "proj_kqciilrvkwnzzqasxcog",
   runtime: "node",
-  logLevel: "log",
+  logLevel: "debug",
   dirs: ["trigger"],
   maxDuration: 3600, // 1 hour default; overridden per-task where needed
   // Self-hosted: set TRIGGER_API_URL=https://trigger.levidan.com in .env.local
