@@ -45,7 +45,7 @@ npm run dev
 
 ## How it Works
 
-1. The browser uploads the PDF directly to **Vercel Blob** (avoids Vercel function payload limits).
+1. The browser uploads the PDF directly to **Vercel Blob** via `/api/uploads/pdf` (avoids Vercel function payload limits).
 2. The secured `/api/scan` route validates auth + credits, then queues Trigger.dev with the blob URL.
 3. Trigger.dev downloads, splits, and OCRs pages with Gemini in parallel.
 4. Results stream into the scanner UI with Markdown rendering, with refunds for failed pages.
