@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, type DragEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { upload } from '@vercel/blob/client';
 import { convertPdfToImages } from '@/lib/pdfUtils';
 
 // --- Types ---
@@ -40,6 +41,9 @@ interface ScannerProps {
   /** After a new run is successfully queued (Convex row created server-side) */
   onScanStarted?: () => void;
 }
+
+const sanitizeFilename = (value: string) =>
+  value.replace(/[^a-zA-Z0-9._-]+/g, '-');
 
 // --- Icons ---
 
@@ -324,12 +328,21 @@ export default function Scanner({
       setPageCount(images.length);
       setGlobalStatus('uploading');
 
-      const formData = new FormData();
-      formData.append('pdf', file);
-      if (range.start) formData.append('pageStart', String(range.start));
-      if (range.end) formData.append('pageEnd', String(range.end));
+      const uploadPath = `scan-pdfs/${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
+      const uploadedBlob = await upload(uploadPath, file, {
+        access: 'public',
+        handleUploadUrl: '/api/blob/upload',
+      });
 
-      const res = await fetch('/api/scan', { method: 'POST', body: formData });
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          blobUrl: uploadedBlob.url,
+          pageStart: range.start,
+          pageEnd: range.end,
+        }),
+      });
       const data = await res.json();
 
       if (res.status === 401) {

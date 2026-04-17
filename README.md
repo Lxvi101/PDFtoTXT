@@ -23,6 +23,7 @@ npm install
 
 ```
 GEMINI_API_KEY=your_api_key_here
+BLOB_READ_WRITE_TOKEN=your_vercel_blob_token
 BETTER_AUTH_SECRET=your_secure_secret
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 CONVEX_URL=your_convex_deployment_url
@@ -44,10 +45,10 @@ npm run dev
 
 ## How it Works
 
-1. **PDF.js** converts each PDF page to an image on the client side.
-2. The secured `/api/analyze` route checks auth + credits, then calls Gemini.
-3. Credits are deducted per successful page and usage is stored in Convex.
-4. Results stream into the scanner UI with Markdown rendering.
+1. The browser uploads the PDF directly to **Vercel Blob** (avoids Vercel function payload limits).
+2. The secured `/api/scan` route validates auth + credits, then queues Trigger.dev with the blob URL.
+3. Trigger.dev downloads, splits, and OCRs pages with Gemini in parallel.
+4. Results stream into the scanner UI with Markdown rendering, with refunds for failed pages.
 
 ## Tech Stack
 
