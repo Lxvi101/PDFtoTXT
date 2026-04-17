@@ -5,6 +5,46 @@ import { api, getAuthenticatedConvexClient } from "@/lib/convex";
 import { PDFDocument } from "pdf-lib";
 import type { processPdf } from "@/trigger/process-pdf";
 
+const MAX_SCAN_PDF_BYTES = 20 * 1024 * 1024;
+
+type ScanRequestBody = {
+  blobUrl?: unknown;
+  pageStart?: unknown;
+  pageEnd?: unknown;
+};
+
+const parseOptionalInteger = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = parseInt(value, 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+};
+
+const SCAN_PATH_PREFIX = "/scan-pdfs/";
+
+const isAllowedBlobUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+
+    return (
+      url.protocol === "https:" &&
+      host.endsWith(".blob.vercel-storage.com") &&
+      url.pathname.startsWith(SCAN_PATH_PREFIX)
+    );
+  } catch {
+    return false;
+  }
+};
+
 export async function POST(request: NextRequest) {
   try {
     const token = await getToken();
@@ -16,33 +56,41 @@ export async function POST(request: NextRequest) {
     const user = await convex.mutation(api.users.ensureUser, {});
     const isAdmin = !!user?.isAdmin;
 
-    // Parse multipart form data
-    const formData = await request.formData();
-    const file = formData.get("pdf") as File | null;
-    const pageStartRaw = formData.get("pageStart") as string | null;
-    const pageEndRaw = formData.get("pageEnd") as string | null;
+    const body = (await request.json().catch(() => null)) as ScanRequestBody | null;
+    const pdfBlobUrl = typeof body?.blobUrl === "string" ? body.blobUrl : "";
+    const pageStartRaw = body?.pageStart;
+    const pageEndRaw = body?.pageEnd;
 
-    if (!file || file.type !== "application/pdf") {
-      return NextResponse.json({ error: "A valid PDF file is required" }, { status: 400 });
+    if (!pdfBlobUrl || !isAllowedBlobUrl(pdfBlobUrl)) {
+      return NextResponse.json({ error: "A valid PDF blob URL is required" }, { status: 400 });
     }
 
-    // 20 MB limit (Trigger.dev payload cap)
-    if (file.size > 20 * 1024 * 1024) {
+    const pdfResponse = await fetch(pdfBlobUrl);
+    if (!pdfResponse.ok) {
+      return NextResponse.json({ error: "Unable to read uploaded PDF" }, { status: 400 });
+    }
+
+    const contentType = pdfResponse.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/pdf")) {
+      return NextResponse.json({ error: "Uploaded file must be a PDF" }, { status: 400 });
+    }
+
+    const arrayBuffer = await pdfResponse.arrayBuffer();
+    if (arrayBuffer.byteLength > MAX_SCAN_PDF_BYTES) {
       return NextResponse.json(
         { error: "PDF must be under 20 MB" },
         { status: 413 },
       );
     }
 
-    // Count pages with pdf-lib
-    const arrayBuffer = await file.arrayBuffer();
+    // Count pages with pdf-lib for trusted credit/page validation
     const pdfDoc = await PDFDocument.load(arrayBuffer);
     const totalPages = pdfDoc.getPageCount();
 
-    const parsedStart = parseInt(pageStartRaw || "", 10);
-    const parsedEnd = parseInt(pageEndRaw || "", 10);
-    const pageStart = isNaN(parsedStart) ? 1 : Math.max(1, parsedStart);
-    const pageEnd = isNaN(parsedEnd) ? totalPages : Math.min(parsedEnd, totalPages);
+    const parsedStart = parseOptionalInteger(pageStartRaw);
+    const parsedEnd = parseOptionalInteger(pageEndRaw);
+    const pageStart = parsedStart === undefined ? 1 : Math.max(1, parsedStart);
+    const pageEnd = parsedEnd === undefined ? totalPages : Math.min(parsedEnd, totalPages);
     const pageCount = pageEnd - pageStart + 1;
 
     if (pageCount <= 0) {
@@ -73,11 +121,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Encode PDF and trigger the cloud task
-    const pdfBase64 = Buffer.from(arrayBuffer).toString("base64");
-
     const handle = await tasks.trigger<typeof processPdf>("process-pdf", {
-      pdfBase64,
+      pdfBlobUrl,
       pageStart,
       pageEnd,
       totalPages,

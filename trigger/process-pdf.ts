@@ -148,12 +148,19 @@ export const processPdf = task({
   // 2 hours — supports very large PDFs
   maxDuration: 7200,
   run: async (payload: {
-    pdfBase64: string;
+    pdfBlobUrl: string;
     pageStart: number;
     pageEnd: number;
     totalPages: number;
   }): Promise<ProcessPdfOutput> => {
-    const pdfBytes = Buffer.from(payload.pdfBase64, "base64");
+    const pdfResponse = await fetch(payload.pdfBlobUrl);
+    if (!pdfResponse.ok) {
+      throw new Error(
+        `[process-pdf] Failed to download PDF blob: ${pdfResponse.status}`,
+      );
+    }
+
+    const pdfBytes = new Uint8Array(await pdfResponse.arrayBuffer());
     const pdfDoc = await PDFDocument.load(pdfBytes);
 
     const start = payload.pageStart;
