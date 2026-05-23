@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { tasks } from "@trigger.dev/sdk";
+import { get } from "@vercel/blob";
 import { getToken } from "@/lib/auth-server";
 import { api, getAuthenticatedConvexClient } from "@/lib/convex";
 import { PDFDocument } from "pdf-lib";
@@ -37,7 +38,8 @@ const isAllowedBlobUrl = (value: string) => {
 
     return (
       url.protocol === "https:" &&
-      host.endsWith(".blob.vercel-storage.com") &&
+      // Private store domain only — reject public blob URLs for sensitive scans.
+      host.endsWith(".private.blob.vercel-storage.com") &&
       url.pathname.startsWith(SCAN_PATH_PREFIX)
     );
   } catch {
@@ -65,17 +67,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "A valid PDF blob URL is required" }, { status: 400 });
     }
 
-    const pdfResponse = await fetch(pdfBlobUrl);
-    if (!pdfResponse.ok) {
+    // Private blobs require an authenticated read (BLOB_READ_WRITE_TOKEN), not fetch().
+    const pdfBlob = await get(pdfBlobUrl, { access: "private" });
+    if (!pdfBlob || pdfBlob.statusCode !== 200) {
       return NextResponse.json({ error: "Unable to read uploaded PDF" }, { status: 400 });
     }
 
-    const contentType = pdfResponse.headers.get("content-type") || "";
+    const contentType = pdfBlob.blob.contentType || "";
     if (!contentType.toLowerCase().includes("application/pdf")) {
       return NextResponse.json({ error: "Uploaded file must be a PDF" }, { status: 400 });
     }
 
-    const arrayBuffer = await pdfResponse.arrayBuffer();
+    const arrayBuffer = await new Response(pdfBlob.stream).arrayBuffer();
     if (arrayBuffer.byteLength > MAX_SCAN_PDF_BYTES) {
       return NextResponse.json(
         { error: "PDF must be under 20 MB" },

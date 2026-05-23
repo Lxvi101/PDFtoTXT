@@ -16,7 +16,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {
-        // Authenticate browser token requests; upload-complete callbacks do not hit this.
         const token = await getToken();
         if (!token) {
           throw new Error("Unauthorized");
@@ -31,10 +30,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           maximumSizeInBytes: MAX_SCAN_PDF_BYTES,
           addRandomSuffix: false,
           validUntil: Date.now() + 1000 * 60 * 5,
-          tokenPayload: JSON.stringify({ source: "scan-pdf" }),
         };
       },
-      onUploadCompleted: async () => {},
     });
 
     return NextResponse.json(response);

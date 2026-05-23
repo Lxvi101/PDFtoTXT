@@ -13,7 +13,7 @@
     "@google/generative-ai": "^0.24.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@vercel/blob": "^2.3.3",
-    "@trigger.dev/sdk": "^4.4.3",
+    "@trigger.dev/sdk": "4.4.6",
     "better-auth": "1.4.9",
     "convex": "^1.31.7",
     "next": "^15.1.4",
@@ -23,7 +23,7 @@
     "react-markdown": "^10.1.0"
   },
   "devDependencies": {
-    "@trigger.dev/build": "^4.4.3",
+    "@trigger.dev/build": "4.4.6",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -25,7 +25,8 @@ npm install
 GEMINI_API_KEY=your_api_key_here
 BLOB_READ_WRITE_TOKEN=your_vercel_blob_token
 BETTER_AUTH_SECRET=your_secure_secret
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_SITE_URL=https://docmind.paperize.store
+SITE_URL=https://docmind.paperize.store
 CONVEX_URL=your_convex_deployment_url
 ```
 
@@ -45,9 +46,9 @@ npm run dev
 
 ## How it Works
 
-1. The browser uploads the PDF directly to **Vercel Blob** via `/api/uploads/pdf` (avoids Vercel function payload limits).
-2. The secured `/api/scan` route validates auth + credits, then queues Trigger.dev with the blob URL.
-3. Trigger.dev downloads, splits, and OCRs pages with Gemini in parallel.
+1. The browser uploads the PDF directly to a **private Vercel Blob** store via `/api/uploads/pdf` (avoids Vercel function payload limits; blobs are not publicly accessible).
+2. The secured `/api/scan` route validates auth + credits, reads the blob with an authenticated request, then queues Trigger.dev with the blob URL.
+3. Trigger.dev downloads (authenticated), splits, and OCRs pages with Gemini in parallel.
 4. Results stream into the scanner UI with Markdown rendering, with refunds for failed pages.
 
 ## Tech Stack

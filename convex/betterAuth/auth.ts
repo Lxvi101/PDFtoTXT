@@ -21,9 +21,13 @@ export const authComponent = createClient<DataModel, typeof schema>(
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   return {
     appName: "DocMind",
-    baseURL: process.env.SITE_URL,
+    baseURL: process.env.SITE_URL ?? "https://docmind.paperize.store",
     secret: process.env.BETTER_AUTH_SECRET,
     database: authComponent.adapter(ctx),
+    trustedOrigins: [
+      "https://docmind.paperize.store",
+      "http://localhost:3000",
+    ],
     emailAndPassword: {
       enabled: true,
     },

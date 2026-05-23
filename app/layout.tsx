@@ -4,6 +4,7 @@ import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { getToken } from "@/lib/auth-server";
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://docmind.paperize.store'),
   title: 'DocMind - Secure PDF Scanning SaaS',
   description: 'Account-secured PDF scanning with credit-based billing and Gemini 2.0 Flash extraction.',
 };

@@ -2,6 +2,7 @@ import type { DeserializedJson } from "@trigger.dev/core";
 import { task, logger, metadata, queue } from "@trigger.dev/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PDFDocument } from "pdf-lib";
+import { get } from "@vercel/blob";
 
 // ── OCR prompt ──────────────────────────────────────────────────────
 const OCR_PROMPT = `
@@ -153,14 +154,17 @@ export const processPdf = task({
     pageEnd: number;
     totalPages: number;
   }): Promise<ProcessPdfOutput> => {
-    const pdfResponse = await fetch(payload.pdfBlobUrl);
-    if (!pdfResponse.ok) {
+    // Private blob — authenticated read via BLOB_READ_WRITE_TOKEN (set in Trigger.dev env).
+    const pdfBlob = await get(payload.pdfBlobUrl, { access: "private" });
+    if (!pdfBlob || pdfBlob.statusCode !== 200) {
       throw new Error(
-        `[process-pdf] Failed to download PDF blob: ${pdfResponse.status}`,
+        `[process-pdf] Failed to download PDF blob: ${pdfBlob?.statusCode ?? "not found"}`,
       );
     }
 
-    const pdfBytes = new Uint8Array(await pdfResponse.arrayBuffer());
+    const pdfBytes = new Uint8Array(
+      await new Response(pdfBlob.stream).arrayBuffer(),
+    );
     const pdfDoc = await PDFDocument.load(pdfBytes);
 
     const start = payload.pageStart;

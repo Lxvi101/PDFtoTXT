@@ -329,20 +329,10 @@ export default function Scanner({
       setGlobalStatus('uploading');
 
       const uploadPath = `scan-pdfs/${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
-      let uploadedBlob;
-      try {
-        uploadedBlob = await upload(uploadPath, file, {
-          access: 'public',
-          handleUploadUrl: '/api/uploads/pdf',
-        });
-      } catch (publicUploadError) {
-        // Some stores are configured as private-only; retry with private access.
-        uploadedBlob = await upload(uploadPath, file, {
-          access: 'private',
-          handleUploadUrl: '/api/uploads/pdf',
-        });
-        console.warn('Public blob upload failed, fell back to private access.', publicUploadError);
-      }
+      const uploadedBlob = await upload(uploadPath, file, {
+        access: 'private',
+        handleUploadUrl: '/api/uploads/pdf',
+      });
 
       const res = await fetch('/api/scan', {
         method: 'POST',
@@ -386,7 +376,9 @@ export default function Scanner({
 
     } catch (error) {
       console.error(error);
-      alert('Error starting scan. Please try again.');
+      const message =
+        error instanceof Error ? error.message : 'Error starting scan. Please try again.';
+      setCreditWarning(message);
       setGlobalStatus('idle');
       setPages([]);
     }
