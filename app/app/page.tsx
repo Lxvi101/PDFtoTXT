@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import Scanner, { type ScanResumePayload } from "@/components/Scanner";
+import Scanner, { type ScanRunsState } from "@/components/Scanner";
 import { authClient } from "@/lib/authClient";
 
 type CreditEvent = {
@@ -42,29 +42,6 @@ type UsageItem = {
   outputTokens: number;
   cost: number;
   createdAt: number;
-};
-
-type ScanRunRow = {
-  _id: string;
-  triggerRunId: string;
-  requestId: string;
-  pageCount: number;
-  pageStart: number;
-  pageEnd: number;
-  totalPages: number;
-  isActive: boolean;
-  status: "processing" | "completed" | "failed" | "stopped";
-  createdAt: number;
-  updatedAt: number;
-  finishedAt?: number;
-  successCount?: number;
-  failedCount?: number;
-  stoppedEarly?: boolean;
-};
-
-type ScanRunsState = {
-  active: ScanRunRow[];
-  recent: ScanRunRow[];
 };
 
 const CREDIT_PACKS = [
@@ -181,17 +158,6 @@ export default function AppPage() {
     return overview.totals;
   }, [overview]);
 
-  const resumeRun: ScanResumePayload | null = useMemo(() => {
-    const a = scanRuns?.active?.[0];
-    if (!a) return null;
-    return {
-      triggerRunId: a.triggerRunId,
-      requestId: a.requestId,
-      pageCount: a.pageCount,
-      pageStart: a.pageStart,
-    };
-  }, [scanRuns?.active?.[0]?.triggerRunId, scanRuns?.active?.[0]?.requestId]);
-
   // Calculate generic usage cost for display purposes (rough estimate based on tokens)
   const estimatedSpend = recentUsage.reduce((acc, curr) => acc + curr.cost, 0);
 
@@ -295,9 +261,8 @@ export default function AppPage() {
               <div className="p-6 md:p-8">
                 <Scanner
                   availableCredits={overview?.user?.isAdmin ? Infinity : availableCredits}
-                  resumeRun={resumeRun}
-                  onScanTerminal={loadOverview}
-                  onScanStarted={loadOverview}
+                  scanRuns={scanRuns}
+                  onRunsChanged={loadOverview}
                   onCreditsUpdate={(credits) =>
                     setOverview((prev) =>
                       prev
@@ -351,7 +316,7 @@ export default function AppPage() {
             {/* Scan runs (Convex): active + history */}
             <div className="tech-panel p-0">
               <div className="tech-panel-header">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-white">Scan Runs</h3>
+                <h3 className="text-sm font-bold uppercase tracking-widest text-white">Run Index</h3>
                 <span className="text-[10px] font-mono text-white/40">
                   {scanRuns?.active?.length ? `${scanRuns.active.length} active` : "—"}
                 </span>
@@ -366,7 +331,7 @@ export default function AppPage() {
                       >
                         <div className="min-w-0">
                           <p className="font-mono text-white/80 truncate">
-                            {run.triggerRunId.slice(0, 10)}…
+                            {(run.fileName || run.triggerRunId).slice(0, 24)}
                           </p>
                           <p className="text-white/35 mt-0.5">
                             {run.pageCount} pg · {formatTime(run.createdAt)}

@@ -10,6 +10,7 @@ const MAX_SCAN_PDF_BYTES = 20 * 1024 * 1024;
 
 type ScanRequestBody = {
   blobUrl?: unknown;
+  fileName?: unknown;
   pageStart?: unknown;
   pageEnd?: unknown;
 };
@@ -60,6 +61,10 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json().catch(() => null)) as ScanRequestBody | null;
     const pdfBlobUrl = typeof body?.blobUrl === "string" ? body.blobUrl : "";
+    const fileName =
+      typeof body?.fileName === "string" && body.fileName.trim()
+        ? body.fileName.trim().slice(0, 180)
+        : undefined;
     const pageStartRaw = body?.pageStart;
     const pageEndRaw = body?.pageEnd;
 
@@ -135,6 +140,7 @@ export async function POST(request: NextRequest) {
       await convex.mutation(api.scanRuns.create, {
         triggerRunId: handle.id,
         requestId,
+        fileName,
         pageCount,
         pageStart,
         pageEnd,
