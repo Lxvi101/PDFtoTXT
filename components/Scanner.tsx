@@ -374,6 +374,7 @@ export default function Scanner({
   }>({ phase: 'idle' });
   const [localRuns, setLocalRuns] = useState<Record<string, RunView>>({});
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [downloadingRunId, setDownloadingRunId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inFlightPolls = useRef<Set<string>>(new Set());
   const runsRef = useRef<RunView[]>([]);
@@ -694,20 +695,52 @@ export default function Scanner({
     void navigator.clipboard.writeText(text);
   };
 
-  const downloadRunText = (run: RunView) => {
-    const pages = run.output?.pages.filter((page) => page.status === 'success') ?? [];
-    const fullText = pages
-      .map((page) => `## Page ${page.pageNumber}\n\n${page.text || ''}\n`)
-      .join('\n---\n\n');
-    const blob = new Blob([fullText], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${sanitizeFilename(run.fileName || run.id)}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const downloadRunText = async (run: RunView) => {
+    setDownloadingRunId(run.id);
+    try {
+      const response = await fetch(`/api/scan/${run.id}/markdown`, { cache: 'no-store' });
+      const contentDisposition = response.headers.get('content-disposition');
+      const fileNameMatch = contentDisposition?.match(/filename="([^"]+)"/i);
+      const data = await response.blob();
+
+      if (!response.ok) {
+        const text = await data.text().catch(() => '');
+        let message = `Markdown download failed with HTTP ${response.status}`;
+        try {
+          const parsed = JSON.parse(text) as { error?: string; detail?: string };
+          message = parsed.detail || parsed.error || message;
+        } catch {
+          if (text.trim()) message = text.trim();
+        }
+
+        updateRun(run.id, (current) => ({
+          ...(current ?? run),
+          pollError: { message },
+          updatedAt: Date.now(),
+        }));
+        return;
+      }
+
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileNameMatch?.[1] || `${sanitizeFilename(run.fileName || run.id)}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      updateRun(run.id, (current) => ({
+        ...(current ?? run),
+        pollError: {
+          message: error instanceof Error ? error.message : 'Markdown download failed.',
+          name: error instanceof Error ? error.name : undefined,
+        },
+        updatedAt: Date.now(),
+      }));
+    } finally {
+      setDownloadingRunId(null);
+    }
   };
 
   const selectedPages = selectedRun ? pagesForRun(selectedRun) : [];
@@ -875,13 +908,14 @@ export default function Scanner({
                     >
                       <Icons.Refresh /> Refresh
                     </button>
-                    {selectedRun.output?.pages.some((page) => page.status === 'success') && (
+                    {selectedCounts.success > 0 && (
                       <button
                         type="button"
-                        onClick={() => downloadRunText(selectedRun)}
+                        disabled={downloadingRunId === selectedRun.id}
+                        onClick={() => void downloadRunText(selectedRun)}
                         className="tech-button px-3 py-2 rounded flex items-center gap-2 text-xs"
                       >
-                        <Icons.Download /> Markdown
+                        <Icons.Download /> {downloadingRunId === selectedRun.id ? 'Preparing' : 'Markdown'}
                       </button>
                     )}
                   </div>
