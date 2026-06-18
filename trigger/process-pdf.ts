@@ -2,7 +2,7 @@ import type { DeserializedJson } from "@trigger.dev/core";
 import { task, logger, metadata, queue } from "@trigger.dev/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PDFDocument } from "pdf-lib";
-import { get } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 
 // ── OCR prompt ──────────────────────────────────────────────────────
 const OCR_PROMPT = `
@@ -101,6 +101,8 @@ export interface ProcessPdfOutput {
     totalCost: number;
     stoppedEarly: boolean;
     stoppedReason?: string;
+    markdownBlobPath?: string;
+    markdownBlobUrl?: string;
   };
 }
 
@@ -183,6 +185,64 @@ function updateProgress(progress: ProgressMetadata) {
   );
 }
 
+const markdownBlobPath = (runId: string) => `scan-markdown/${runId}.md`;
+
+const buildMarkdown = (runId: string, output: Omit<ProcessPdfOutput, "summary"> & { summary: ProcessPdfOutput["summary"] }) => {
+  const successPages = output.pages.filter((page) => page.status === "success" && page.text.trim());
+  const failedPages = output.pages.filter((page) => page.status === "error");
+  const parts = [
+    `# Scan ${runId}`,
+    "",
+    `Run: \`${runId}\``,
+    `Successful pages: ${successPages.length}`,
+    failedPages.length ? `Failed pages: ${failedPages.length}` : "",
+    "",
+  ].filter(Boolean);
+
+  for (const page of successPages) {
+    parts.push(`## Page ${page.pageNumber}`, "", page.text, "");
+  }
+
+  if (failedPages.length > 0) {
+    parts.push("## Failed Pages", "");
+    for (const page of failedPages) {
+      parts.push(`- Page ${page.pageNumber}: ${page.error || "No error message was recorded."}`);
+    }
+    parts.push("");
+  }
+
+  return parts.join("\n").replace(/\n{4,}/g, "\n\n\n");
+};
+
+const persistMarkdownArtifact = async (runId: string, output: ProcessPdfOutput) => {
+  const markdown = buildMarkdown(runId, output);
+  if (!markdown.trim()) return null;
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const blob = await put(markdownBlobPath(runId), markdown, {
+        access: "private",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: "text/markdown; charset=utf-8",
+        cacheControlMaxAge: 60,
+      });
+      return blob.url;
+    } catch (error) {
+      lastError = error;
+      logger.error(
+        `[process-pdf] Markdown artifact upload failed on attempt ${attempt}/3: ${formatRunError(error)}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+
+  throw new Error(
+    `[process-pdf] Failed to persist markdown artifact for ${runId}: ${formatRunError(lastError)}`,
+  );
+};
+
 // ── Main task: split PDF → batched parallel processing ──────────────
 export const processPdf = task({
   id: "process-pdf",
@@ -193,7 +253,7 @@ export const processPdf = task({
     pageStart: number;
     pageEnd: number;
     totalPages: number;
-  }): Promise<ProcessPdfOutput> => {
+  }, { ctx }): Promise<ProcessPdfOutput> => {
     // Private blob — authenticated read via BLOB_READ_WRITE_TOKEN (set in Trigger.dev env).
     const pdfBlob = await get(payload.pdfBlobUrl, { access: "private" });
     if (!pdfBlob || pdfBlob.statusCode !== 200) {
@@ -405,7 +465,7 @@ export const processPdf = task({
     progress.failedCount = failedPages.length;
     updateProgress(progress);
 
-    const summary = {
+    const summary: ProcessPdfOutput["summary"] = {
       totalPages: pageCount,
       successCount: successPages.length,
       failedCount: failedPages.length,
@@ -416,12 +476,18 @@ export const processPdf = task({
       stoppedReason,
     };
 
+    const output: ProcessPdfOutput = { pages: allResults, summary };
+    const markdownBlobUrl = await persistMarkdownArtifact(ctx.run.id, output);
+    summary.markdownBlobPath = markdownBlobPath(ctx.run.id);
+    summary.markdownBlobUrl = markdownBlobUrl ?? undefined;
+    metadata.set("markdownBlobPath", summary.markdownBlobPath);
+
     logger.info(
       `[process-pdf] ${stopped ? "STOPPED" : "DONE"} — ${summary.successCount}/${summary.totalPages} pages, ` +
         `${summary.failedCount} failed, $${summary.totalCost.toFixed(6)} total` +
         (stoppedReason ? ` | ${stoppedReason}` : ""),
     );
 
-    return { pages: allResults, summary };
+    return output;
   },
 });
