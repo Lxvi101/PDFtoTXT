@@ -472,8 +472,8 @@ export default function Scanner({
       return;
     }
 
-    if (file.size > 20 * 1024 * 1024) {
-      setUploadState({ phase: 'idle', error: 'PDF must be under 20 MB.' });
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadState({ phase: 'idle', error: 'PDF must be under 50 MB.' });
       return;
     }
 

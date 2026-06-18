@@ -6,7 +6,7 @@ import { api, getAuthenticatedConvexClient } from "@/lib/convex";
 import { PDFDocument } from "pdf-lib";
 import type { processPdf } from "@/trigger/process-pdf";
 
-const MAX_SCAN_PDF_BYTES = 20 * 1024 * 1024;
+const MAX_SCAN_PDF_BYTES = 50 * 1024 * 1024;
 
 type ScanRequestBody = {
   blobUrl?: unknown;
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await new Response(pdfBlob.stream).arrayBuffer();
     if (arrayBuffer.byteLength > MAX_SCAN_PDF_BYTES) {
       return NextResponse.json(
-        { error: "PDF must be under 20 MB" },
+        { error: "PDF must be under 50 MB" },
         { status: 413 },
       );
     }

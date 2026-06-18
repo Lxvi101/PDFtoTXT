@@ -2,7 +2,7 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import { getToken } from "@/lib/auth-server";
 
-const MAX_SCAN_PDF_BYTES = 20 * 1024 * 1024;
+const MAX_SCAN_PDF_BYTES = 50 * 1024 * 1024;
 const SCAN_PATH_PREFIX = "scan-pdfs/";
 
 export async function POST(request: Request): Promise<NextResponse> {
