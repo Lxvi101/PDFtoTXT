@@ -316,6 +316,7 @@ export default function Scanner({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inFlightPolls = useRef<Set<string>>(new Set());
+  const runsRef = useRef<RunView[]>([]);
 
   const serverRuns = useMemo(() => {
     const byId = new Map<string, ScanRunRow>();
@@ -347,6 +348,10 @@ export default function Scanner({
   }, [runs, selectedRunId]);
 
   useEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
+
+  useEffect(() => {
     if (!selectedRunId && runs.length > 0) {
       setSelectedRunId(runs[0].id);
     }
@@ -355,9 +360,9 @@ export default function Scanner({
   const updateRun = useCallback((id: string, updater: (run: RunView | undefined) => RunView) => {
     setLocalRuns((prev) => ({
       ...prev,
-      [id]: updater(prev[id] ?? runs.find((run) => run.id === id)),
+      [id]: updater(prev[id] ?? runsRef.current.find((run) => run.id === id)),
     }));
-  }, [runs]);
+  }, []);
 
   const pollRun = useCallback(async (id: string) => {
     if (inFlightPolls.current.has(id)) return;
@@ -456,7 +461,7 @@ export default function Scanner({
     return () => clearInterval(interval);
   }, [activeRunIds.join('|'), pollRun]);
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = useCallback(async (file: File) => {
     if (availableCredits === null) {
       setUploadState({ phase: 'idle', error: 'Credit balance is still loading.' });
       return;
@@ -560,14 +565,14 @@ export default function Scanner({
         error: error instanceof Error ? error.message : 'Upload failed.',
       });
     }
-  };
+  }, [availableCredits, onCreditsUpdate, onRunsChanged, pageRange, pollRun]);
 
   const onDrop = useCallback((event: DragEvent) => {
     event.preventDefault();
     setIsDragOver(false);
     const file = event.dataTransfer.files[0];
     if (file) void handleFileUpload(file);
-  }, [availableCredits, pageRange]);
+  }, [handleFileUpload]);
 
   const copyToClipboard = (text: string) => {
     void navigator.clipboard.writeText(text);
