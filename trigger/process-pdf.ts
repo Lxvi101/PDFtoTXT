@@ -30,6 +30,44 @@ const calculateCost = (input: number, output: number) =>
   (input / 1_000_000) * PRICING.INPUT_PER_1M +
   (output / 1_000_000) * PRICING.OUTPUT_PER_1M;
 
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const MAX_ERROR_LENGTH = 600;
+
+function formatRunError(error: unknown) {
+  let message = "unknown error";
+
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (typeof error === "string") {
+    message = error;
+  } else if (error && typeof error === "object") {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.length > 0) {
+      message = maybeMessage;
+    } else {
+      try {
+        message = JSON.stringify(error);
+      } catch {
+        message = String(error);
+      }
+    }
+  } else if (error !== undefined && error !== null) {
+    message = String(error);
+  }
+
+  return message.length > MAX_ERROR_LENGTH
+    ? `${message.slice(0, MAX_ERROR_LENGTH)}...`
+    : message;
+}
+
+function getRunErrorMessage(run: unknown) {
+  if (run && typeof run === "object" && "error" in run) {
+    return formatRunError((run as { error?: unknown }).error);
+  }
+
+  return "unknown error";
+}
+
 // ── Types ───────────────────────────────────────────────────────────
 export interface PageResult {
   pageNumber: number;
@@ -99,9 +137,11 @@ export const processPage = task({
     if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
-    logger.debug(`[process-page] Calling Gemini for page ${payload.pageNumber}`);
+    logger.debug(
+      `[process-page] Calling Gemini ${GEMINI_MODEL} for page ${payload.pageNumber}`,
+    );
 
     const result = await model.generateContent([
       OCR_PROMPT,
@@ -261,8 +301,7 @@ export const processPdf = task({
             progress.completedCount++;
             consecutiveFailures = 0;
           } else {
-            const errMsg =
-              !run.ok && "error" in run ? String(run.error) : "unknown error";
+            const errMsg = !run.ok ? getRunErrorMessage(run) : "unknown error";
             logger.error(
               `[process-pdf] Page ${pageNum} failed after retries: ${errMsg}`,
             );
@@ -273,7 +312,7 @@ export const processPdf = task({
               outputTokens: 0,
               cost: 0,
               status: "error",
-              error: "Processing failed after retries",
+              error: errMsg,
             });
             progress.pageStatuses[String(pageNum)] = "error";
             progress.failedCount++;
@@ -291,7 +330,12 @@ export const processPdf = task({
         // ── Circuit breaker ──
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
           stopped = true;
-          stoppedReason = `Circuit breaker: ${consecutiveFailures} consecutive page failures. Likely a systemic issue (API down, rate limits, etc).`;
+          const recentError = results.get(
+            batchPageNumbers[batchPageNumbers.length - 1],
+          )?.error;
+          stoppedReason =
+            `Circuit breaker: ${consecutiveFailures} consecutive page failures.` +
+            (recentError ? ` Last error: ${recentError}` : "");
           logger.error(stoppedReason);
 
           for (let k = i + BATCH_SIZE; k < items.length; k++) {

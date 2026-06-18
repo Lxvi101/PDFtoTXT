@@ -9,12 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@convex-dev/better-auth": "0.10.10",
+    "@convex-dev/better-auth": "0.12.4",
     "@google/generative-ai": "^0.24.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@vercel/blob": "^2.3.3",
     "@trigger.dev/sdk": "4.4.6",
-    "better-auth": "1.4.9",
+    "better-auth": "1.6.19",
     "convex": "^1.31.7",
     "next": "^15.1.4",
     "pdf-lib": "^1.17.1",
