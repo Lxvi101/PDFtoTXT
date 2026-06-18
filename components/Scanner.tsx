@@ -97,6 +97,7 @@ type RunView = {
   pollError?: SerializedError | null;
   triggerStatus?: string;
   previewImages?: string[];
+  previewStatus?: 'ready' | 'missing' | 'loading';
 };
 
 interface ScannerProps {
@@ -108,6 +109,64 @@ interface ScannerProps {
 
 const sanitizeFilename = (value: string) =>
   value.replace(/[^a-zA-Z0-9._-]+/g, '-');
+
+const PREVIEW_DB_NAME = 'docmind-scan-previews';
+const PREVIEW_STORE_NAME = 'previews';
+const PREVIEW_DB_VERSION = 1;
+
+type PreviewRecord = {
+  runId: string;
+  images: string[];
+  pageStart: number;
+  createdAt: number;
+};
+
+const openPreviewDb = () =>
+  new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('Preview cache is not available in this browser.'));
+      return;
+    }
+
+    const request = indexedDB.open(PREVIEW_DB_NAME, PREVIEW_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PREVIEW_STORE_NAME)) {
+        db.createObjectStore(PREVIEW_STORE_NAME, { keyPath: 'runId' });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('Unable to open preview cache'));
+  });
+
+const getCachedPreview = async (runId: string) => {
+  const db = await openPreviewDb();
+  return new Promise<PreviewRecord | null>((resolve, reject) => {
+    const transaction = db.transaction(PREVIEW_STORE_NAME, 'readonly');
+    const request = transaction.objectStore(PREVIEW_STORE_NAME).get(runId);
+    request.onsuccess = () => resolve((request.result as PreviewRecord | undefined) ?? null);
+    request.onerror = () => reject(request.error ?? new Error('Unable to read preview cache'));
+    transaction.oncomplete = () => db.close();
+  });
+};
+
+const setCachedPreview = async (record: PreviewRecord) => {
+  const db = await openPreviewDb();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(PREVIEW_STORE_NAME, 'readwrite');
+    transaction.objectStore(PREVIEW_STORE_NAME).put(record);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error('Unable to write preview cache'));
+    };
+  });
+};
 
 const isTerminalStatus = (status: RunStatus) =>
   status === 'completed' || status === 'failed' || status === 'stopped';
@@ -169,6 +228,7 @@ const rowToRunView = (row: ScanRunRow): RunView => ({
     : null,
   pollError: null,
   triggerStatus: row.triggerStatus,
+  previewStatus: 'loading',
 });
 
 const pagesForRun = (run: RunView) => {
@@ -334,6 +394,7 @@ export default function Scanner({
         ...server,
         ...run,
         previewImages: run.previewImages ?? server?.previewImages,
+        previewStatus: run.previewImages?.length ? 'ready' : run.previewStatus ?? server?.previewStatus ?? 'loading',
         progress: run.progress ?? server?.progress,
         output: run.output ?? server?.output,
         error: run.error ?? server?.error ?? null,
@@ -363,6 +424,45 @@ export default function Scanner({
       [id]: updater(prev[id] ?? runsRef.current.find((run) => run.id === id)),
     }));
   }, []);
+
+  useEffect(() => {
+    const runsNeedingPreview = runs.filter(
+      (run) => !run.previewImages?.length && run.previewStatus !== 'missing',
+    );
+    if (runsNeedingPreview.length === 0) return;
+
+    let cancelled = false;
+
+    for (const run of runsNeedingPreview) {
+      void getCachedPreview(run.id)
+        .then((record) => {
+          if (cancelled) return;
+          updateRun(run.id, (current) => ({
+            ...(current ?? run),
+            previewImages: record?.images,
+            previewStatus: record?.images?.length ? 'ready' : 'missing',
+            pageStart: record?.pageStart ?? current?.pageStart ?? run.pageStart,
+            updatedAt: Date.now(),
+          }));
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          updateRun(run.id, (current) => ({
+            ...(current ?? run),
+            previewStatus: 'missing',
+            pollError: {
+              message: error instanceof Error ? error.message : 'Unable to load cached previews.',
+              name: error instanceof Error ? error.name : undefined,
+            },
+            updatedAt: Date.now(),
+          }));
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [runs, updateRun]);
 
   const pollRun = useCallback(async (id: string) => {
     if (inFlightPolls.current.has(id)) return;
@@ -457,7 +557,7 @@ export default function Scanner({
     for (const id of activeRunIds) void pollRun(id);
     const interval = setInterval(() => {
       for (const id of activeRunIds) void pollRun(id);
-    }, 2000);
+    }, 1000);
     return () => clearInterval(interval);
   }, [activeRunIds.join('|'), pollRun]);
 
@@ -537,6 +637,7 @@ export default function Scanner({
         createdAt: Date.now(),
         updatedAt: Date.now(),
         previewImages: images,
+        previewStatus: 'ready',
         progress: {
           phase: 'processing',
           totalPages: data.pageCount,
@@ -552,6 +653,21 @@ export default function Scanner({
       setLocalRuns((prev) => ({ ...prev, [run.id]: run }));
       setSelectedRunId(run.id);
       setUploadState({ phase: 'idle', message: `${file.name} started` });
+      void setCachedPreview({
+        runId: run.id,
+        images,
+        pageStart: startPage,
+        createdAt: Date.now(),
+      }).catch((error) => {
+        updateRun(run.id, (current) => ({
+          ...(current ?? run),
+          pollError: {
+            message: error instanceof Error ? error.message : 'Unable to cache previews for refresh.',
+            name: error instanceof Error ? error.name : undefined,
+          },
+          updatedAt: Date.now(),
+        }));
+      });
 
       if (typeof data.creditsRemaining === 'number') {
         onCreditsUpdate?.(data.creditsRemaining);
@@ -844,7 +960,9 @@ export default function Scanner({
                               className="max-h-80 max-w-full rounded-sm shadow-lg"
                             />
                           ) : (
-                            <div className="text-center text-xs font-mono text-white/20">Preview unavailable</div>
+                            <div className="text-center text-xs font-mono text-white/20">
+                              {selectedRun.previewStatus === 'loading' ? 'Loading preview...' : 'Preview unavailable'}
+                            </div>
                           )}
                         </div>
                         <div className="max-h-96 overflow-y-auto p-4 custom-scrollbar">
